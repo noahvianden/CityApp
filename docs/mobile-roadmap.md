@@ -16,8 +16,9 @@ This branch is dedicated to the mobile version of Cityprint.
 - Replaced grid-only GPS jump rejection with meter-based walking validation.
 - Stored the last accepted GPS sample in the walk session so movement speed can be evaluated across real device samples.
 - Added mobile GPS diagnostics that summarize sample accuracy, mapped cell, reveal radius, movement speed, and rejection reasons for device testing.
+- Added an in-app GPS diagnostics overlay that appears after the first GPS sample and expands to show the latest diagnostic details.
 - Added CI for test, lint, web build, Capacitor sync, and Android debug APK build.
-- Added unit tests for geo-grid projection, bounds checks, round-tripping cell centers, GPS acceptance, GPS rejection, stale samples, repeated samples, speed-too-fast detection, accuracy-aware reveal radius, and mobile diagnostics.
+- Added unit tests for geo-grid projection, bounds checks, round-tripping cell centers, GPS acceptance, GPS rejection, stale samples, repeated samples, speed-too-fast detection, accuracy-aware reveal radius, diagnostics publishing, and mobile diagnostics.
 
 ## Current GPS model
 
@@ -36,15 +37,34 @@ GPS samples now behave as follows:
 - stale samples: rejected before they can advance the walk.
 - unrealistic movement speed: rejected as `speed-too-fast`.
 
+## In-app diagnostics overlay
+
+The mobile app now renders a compact GPS diagnostics overlay at the bottom of the screen after the first GPS sample is processed by the walk controller.
+
+The collapsed overlay shows:
+
+- accepted/rejected state
+- mapped cell or `No cell`
+- reason such as `gps`, `unmapped`, `accuracy-too-low`, `stale-sample`, or `speed-too-fast`
+- timestamp of the diagnostic
+
+Tapping the overlay expands it and shows:
+
+- accuracy label
+- reveal radius
+- movement speed
+- approximate atlas cell size
+- diagnostic messages explaining why the sample was accepted or rejected
+
 ## Remaining mobile work
 
 1. Test the Android APK on a physical device.
-2. Surface the mobile GPS diagnostics in the app UI, ideally under the GPS/location feed panel.
-3. Add foreground-service support if walks should continue reliably while the app is backgrounded.
-4. Add a mobile-first permission onboarding screen for location access and privacy controls.
-5. Replace the coarse city bounding boxes with more accurate city polygons or per-district bounds.
-6. Add a real map/tile layer only if the product direction requires street-level map visuals.
-7. Move persistence from browser `localStorage` to a mobile storage adapter, such as Capacitor Preferences or SQLite.
+2. Add foreground-service support if walks should continue reliably while the app is backgrounded.
+3. Add a mobile-first permission onboarding screen for location access and privacy controls.
+4. Replace the coarse city bounding boxes with more accurate city polygons or per-district bounds.
+5. Add a real map/tile layer only if the product direction requires street-level map visuals.
+6. Move persistence from browser `localStorage` to a mobile storage adapter, such as Capacitor Preferences or SQLite.
+7. Decide whether the diagnostics overlay should remain developer-only or become a hidden debug setting before release.
 
 ## Device testing checklist
 
@@ -70,6 +90,7 @@ npm run android:run
   - GPS permission request appears.
   - Denying permission keeps the GPS lane blocked.
   - Granting permission allows samples to enter the location feed.
+  - The diagnostics overlay appears after the first GPS sample reaches the walk controller.
   - Samples outside the selected city are shown as unmapped.
   - Samples inside the selected city reveal nearby atlas cells.
   - Coarse accepted samples reveal only the current cell.
