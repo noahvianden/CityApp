@@ -4,6 +4,7 @@ import './index.css'
 import App from './App.tsx'
 import MobileDiagnosticsPanel from './MobileDiagnosticsPanel.tsx'
 import { bootstrapNativeSnapshotIntoLocalStorage, startNativeSnapshotMirror } from './mobileSnapshotStore.ts'
+import './mobileVisualPolish.css'
 
 async function startApp() {
   await bootstrapNativeSnapshotIntoLocalStorage()
