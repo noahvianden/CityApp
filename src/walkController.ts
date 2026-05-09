@@ -1,7 +1,8 @@
 import type { City } from './cityprintData'
-import type { LocationSample, LocationSampleResult } from './locationAdapter'
+import { getCityGeoBounds } from './cityGeoBounds'
+import { distanceMeters } from './geoGrid'
+import type { GpsLocationSample, LocationSample, LocationSampleResult } from './locationAdapter'
 import { nextSampleFromRoute, sampleNeighborhood, sampleToCellId } from './locationAdapter'
-import { cellDistance } from './revealModel'
 
 export type WalkStatus = 'idle' | 'running' | 'paused' | 'background'
 
@@ -14,6 +15,7 @@ export type WalkSession = {
   pausedAt: number | null
   lastSampleAt: number | null
   lastSampleCellId: string | null
+  lastGpsSample?: GpsLocationSample | null
 }
 
 export type WalkStepInput = {
@@ -35,12 +37,14 @@ export type WalkStepResult = {
   sampleReason: WalkSampleReason
   completed: boolean
   advancedRoute: boolean
+  movementSpeedMps?: number | null
 }
 
 export type WalkSampleReason = LocationSampleResult['reason'] | 'speed-too-fast' | 'stale-sample' | null
 
-const minimumGpsCellTravelMs = 45000
 const maximumGpsSampleAgeMs = 30000
+const maximumWalkingSpeedMps = 3.2
+const gpsSpeedToleranceM = 35
 
 export function createIdleWalkSession(): WalkSession {
   return {
@@ -52,6 +56,7 @@ export function createIdleWalkSession(): WalkSession {
     pausedAt: null,
     lastSampleAt: null,
     lastSampleCellId: null,
+    lastGpsSample: null,
   }
 }
 
@@ -93,6 +98,24 @@ export function canAdvanceWalk(session: WalkSession) {
   return session.status === 'running'
 }
 
+function calculateGpsMovementSpeedMps(previous: GpsLocationSample, next: GpsLocationSample) {
+  const elapsedSeconds = (next.capturedAt - previous.capturedAt) / 1000
+
+  if (elapsedSeconds <= 0) {
+    return null
+  }
+
+  const movementMeters = Math.max(
+    0,
+    distanceMeters(
+      { latitude: previous.latitude, longitude: previous.longitude },
+      { latitude: next.latitude, longitude: next.longitude },
+    ) - previous.accuracyM - next.accuracyM - gpsSpeedToleranceM,
+  )
+
+  return movementMeters / elapsedSeconds
+}
+
 export function stepWalk(input: WalkStepInput): WalkStepResult {
   const { city, session, revealedCells, seenPlaceIds, sample, now = Date.now() } = input
 
@@ -107,6 +130,7 @@ export function stepWalk(input: WalkStepInput): WalkStepResult {
       sampleReason: null,
       completed: session.routeIndex >= city.walkRoute.length - 1,
       advancedRoute: false,
+      movementSpeedMps: null,
     }
   }
 
@@ -131,6 +155,7 @@ export function stepWalk(input: WalkStepInput): WalkStepResult {
       sampleReason: null,
       completed,
       advancedRoute: false,
+      movementSpeedMps: null,
     }
   }
 
@@ -155,6 +180,7 @@ export function stepWalk(input: WalkStepInput): WalkStepResult {
       sampleReason: resolved.reason,
       completed: false,
       advancedRoute: false,
+      movementSpeedMps: null,
     }
   }
 
@@ -173,16 +199,15 @@ export function stepWalk(input: WalkStepInput): WalkStepResult {
         sampleReason: 'stale-sample',
         completed: false,
         advancedRoute: false,
+        movementSpeedMps: null,
       }
     }
   }
 
-  if (resolvedSample.kind === 'gps' && session.lastSampleAt !== null && session.lastSampleCellId) {
-    const elapsedMs = resolvedSample.capturedAt - session.lastSampleAt
-    const movedCells = cellDistance(session.lastSampleCellId, resolved.cellId)
-    const minimumTravelMs = movedCells * minimumGpsCellTravelMs
+  if (resolvedSample.kind === 'gps' && session.lastGpsSample) {
+    const movementSpeedMps = calculateGpsMovementSpeedMps(session.lastGpsSample, resolvedSample)
 
-    if (movedCells > 0 && elapsedMs >= 0 && elapsedMs < minimumTravelMs) {
+    if (movementSpeedMps !== null && movementSpeedMps > maximumWalkingSpeedMps) {
       return {
         session,
         revealedCells: new Set(revealedCells),
@@ -193,6 +218,7 @@ export function stepWalk(input: WalkStepInput): WalkStepResult {
         sampleReason: 'speed-too-fast',
         completed: false,
         advancedRoute: false,
+        movementSpeedMps,
       }
     }
   }
@@ -222,6 +248,7 @@ export function stepWalk(input: WalkStepInput): WalkStepResult {
           ? 'paused'
           : 'running'
       : session.status
+  const cityBounds = getCityGeoBounds(city.id)
 
   return {
     session: {
@@ -231,6 +258,7 @@ export function stepWalk(input: WalkStepInput): WalkStepResult {
       acceptedSampleCount: nextAcceptedSampleCount,
       lastSampleAt: now,
       lastSampleCellId: resolved.cellId,
+      lastGpsSample: resolvedSample.kind === 'gps' && cityBounds ? resolvedSample : session.lastGpsSample ?? null,
       status: nextStatus,
       pausedAt: shouldAdvanceRoute && discoveryPlaceIds.length > 0 ? now : session.pausedAt,
     },
@@ -242,5 +270,6 @@ export function stepWalk(input: WalkStepInput): WalkStepResult {
     sampleReason: resolved.reason,
     completed,
     advancedRoute: shouldAdvanceRoute,
+    movementSpeedMps: null,
   }
 }
