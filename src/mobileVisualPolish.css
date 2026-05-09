@@ -358,9 +358,11 @@ body {
 }
 
 .water {
-  fill: url(#cityprint-water-gradient, #8fc7d5);
+  fill: #8fc7d5;
   opacity: 0.98;
-  filter: drop-shadow(0 -2px 0 rgba(255, 255, 255, 0.18));
+  filter:
+    drop-shadow(0 -2px 0 rgba(255, 255, 255, 0.18))
+    drop-shadow(0 12px 18px rgba(57, 110, 124, 0.16));
 }
 
 .park-shape {
