@@ -2,9 +2,13 @@ import { describe, expect, it } from 'vitest'
 import { createDefaultCityProgress, defaultLocationSettings, defaultPrivacy, type AppSnapshot } from './appState'
 import { cities } from './cityprintData'
 import {
+  cityprintBackupStorageKey,
+  cityprintStorageKey,
   clearCityprintSnapshot,
   getCityProgress,
   readCityprintSnapshot,
+  readCityprintSnapshotFromRaw,
+  serializeCityprintSnapshot,
   withCityProgress,
   writeCityprintSnapshot,
 } from './persistence'
@@ -33,7 +37,7 @@ function memoryStorage(initial?: Record<string, string>) {
 describe('persistence', () => {
   it('returns defaults when storage is empty or invalid', () => {
     expect(readCityprintSnapshot(memoryStorage()).privacy).toEqual(defaultPrivacy)
-    expect(readCityprintSnapshot(memoryStorage({ 'cityprint:v1': '{bad json' })).selectedCityId).toBeNull()
+    expect(readCityprintSnapshot(memoryStorage({ [cityprintStorageKey]: '{bad json' })).selectedCityId).toBeNull()
   })
 
   it('round-trips selected city, privacy, progress and memories', () => {
@@ -92,9 +96,34 @@ describe('persistence', () => {
     expect(getCityProgress(readCityprintSnapshot(storage), berlin).latestRevealDigest).toEqual(progress.latestRevealDigest)
     expect(getCityProgress(readCityprintSnapshot(storage), berlin).discoveryIds).toEqual(progress.discoveryIds)
     expect(getCityProgress(readCityprintSnapshot(storage), berlin).reviewedDiscoveryIds).toEqual(progress.reviewedDiscoveryIds)
-    expect(storage.raw.get('cityprint:v1')).not.toContain('12.3')
-    expect(storage.raw.get('cityprint:v1')).not.toContain('45.6')
-    expect(storage.raw.get('cityprint:v1')).not.toContain('9')
+    expect(storage.raw.get(cityprintStorageKey)).not.toContain('12.3')
+    expect(storage.raw.get(cityprintStorageKey)).not.toContain('45.6')
+    expect(storage.raw.get(cityprintStorageKey)).not.toContain('9')
+  })
+
+  it('serializes and parses snapshots without precise GPS coordinates', () => {
+    const berlin = cities[0]
+    const snapshot: AppSnapshot = {
+      selectedCityId: berlin.id,
+      privacy: defaultPrivacy,
+      location: { mode: 'gps', permission: 'granted', gpsLatitude: '52.51631', gpsLongitude: '13.37777', gpsAccuracy: '8' },
+      cityProgress: {
+        [berlin.id]: createDefaultCityProgress(berlin),
+      },
+    }
+
+    const serialized = serializeCityprintSnapshot(snapshot)
+    const parsed = readCityprintSnapshotFromRaw(serialized)
+
+    expect(serialized).not.toContain('52.51631')
+    expect(serialized).not.toContain('13.37777')
+    expect(serialized).not.toContain('"8"')
+    expect(parsed?.location).toEqual({
+      ...defaultLocationSettings,
+      mode: 'gps',
+      permission: 'granted',
+    })
+    expect(parsed?.selectedCityId).toBe(berlin.id)
   })
 
   it('keeps a backup snapshot in sync when backup is enabled and restores from it if needed', () => {
@@ -123,7 +152,7 @@ describe('persistence', () => {
 
     writeCityprintSnapshot(snapshot, storage)
 
-    expect(storage.raw.get('cityprint:v1:backup')).toBeDefined()
+    expect(storage.raw.get(cityprintBackupStorageKey)).toBeDefined()
     expect(readCityprintSnapshot(storage)).toEqual({
       ...snapshot,
       location: {
@@ -133,7 +162,7 @@ describe('persistence', () => {
       },
     })
 
-    storage.raw.delete('cityprint:v1')
+    storage.raw.delete(cityprintStorageKey)
 
     expect(readCityprintSnapshot(storage)).toEqual({
       ...snapshot,
@@ -157,7 +186,7 @@ describe('persistence', () => {
 
     writeCityprintSnapshot(enabledSnapshot, storage)
 
-    expect(storage.raw.has('cityprint:v1:backup')).toBe(true)
+    expect(storage.raw.has(cityprintBackupStorageKey)).toBe(true)
 
     writeCityprintSnapshot(
       {
@@ -167,13 +196,13 @@ describe('persistence', () => {
       storage,
     )
 
-    expect(storage.raw.has('cityprint:v1:backup')).toBe(false)
+    expect(storage.raw.has(cityprintBackupStorageKey)).toBe(false)
   })
 
   it('clears both primary and backup snapshots together', () => {
     const storage = memoryStorage({
-      'cityprint:v1': JSON.stringify(createDefaultCityProgress(cities[0])),
-      'cityprint:v1:backup': JSON.stringify(createDefaultCityProgress(cities[0])),
+      [cityprintStorageKey]: JSON.stringify(createDefaultCityProgress(cities[0])),
+      [cityprintBackupStorageKey]: JSON.stringify(createDefaultCityProgress(cities[0])),
     })
 
     clearCityprintSnapshot(storage)
