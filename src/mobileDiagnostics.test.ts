@@ -20,7 +20,7 @@ function gpsSampleForCell(cellId: string, capturedAt = 1000, accuracyM = 12) {
 }
 
 describe('mobile diagnostics', () => {
-  it('summarizes accepted precise GPS samples', () => {
+  it('summarizes accepted precise GPS samples with district context', () => {
     const diagnostic = buildMobileGpsDiagnostic({
       cityId: 'berlin',
       sample: gpsSampleForCell('3-4', 1000, 12),
@@ -29,10 +29,25 @@ describe('mobile diagnostics', () => {
     expect(diagnostic.status).toBe('accepted')
     expect(diagnostic.reason).toBe('gps')
     expect(diagnostic.cellId).toBe('3-4')
+    expect(diagnostic.districtName).toBe('Old Center')
+    expect(diagnostic.districtCandidates).toContain('Old Center')
     expect(diagnostic.revealRadius).toBe(1)
     expect(diagnostic.accuracyLabel).toBe('High accuracy')
     expect(diagnostic.cityCellSize?.widthMeters).toBeGreaterThan(1000)
+    expect(diagnostic.messages.join(' ')).toContain('Old Center')
     expect(diagnostic.messages.join(' ')).toContain('neighboring cells')
+  })
+
+  it('summarizes nearby authored places in the mapped cell', () => {
+    const diagnostic = buildMobileGpsDiagnostic({
+      cityId: 'berlin',
+      sample: gpsSampleForCell('4-4', 1000, 12),
+    })
+
+    expect(diagnostic.districtName).toBe('Old Center')
+    expect(diagnostic.districtCandidates).toEqual(['Old Center', 'Garden East'])
+    expect(diagnostic.nearbyPlaceNames).toEqual(['Arcade House'])
+    expect(diagnostic.messages.join(' ')).toContain('Arcade House')
   })
 
   it('summarizes accepted coarse GPS samples', () => {
@@ -57,6 +72,7 @@ describe('mobile diagnostics', () => {
     expect(diagnostic.status).toBe('rejected')
     expect(diagnostic.reason).toBe('accuracy-too-low')
     expect(diagnostic.cellId).toBeNull()
+    expect(diagnostic.districtName).toBeNull()
     expect(diagnostic.messages.join(' ')).toContain('Accuracy must be')
   })
 
