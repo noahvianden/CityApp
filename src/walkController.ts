@@ -3,6 +3,8 @@ import { getCityGeoBounds } from './cityGeoBounds'
 import { distanceMeters } from './geoGrid'
 import type { GpsLocationSample, LocationSample, LocationSampleResult } from './locationAdapter'
 import { nextSampleFromRoute, sampleNeighborhood, sampleToCellId } from './locationAdapter'
+import { buildMobileGpsDiagnostic } from './mobileDiagnostics'
+import { publishMobileGpsDiagnostic } from './mobileDiagnosticsEvents'
 
 export type WalkStatus = 'idle' | 'running' | 'paused' | 'background'
 
@@ -116,6 +118,32 @@ function calculateGpsMovementSpeedMps(previous: GpsLocationSample, next: GpsLoca
   return movementMeters / elapsedSeconds
 }
 
+function emitGpsDiagnostic(
+  cityId: string,
+  session: WalkSession,
+  sample: LocationSample,
+  walkReason: WalkSampleReason,
+  walkAccepted: boolean,
+) {
+  if (sample.kind !== 'gps') {
+    return
+  }
+
+  publishMobileGpsDiagnostic({
+    ...buildMobileGpsDiagnostic({
+      cityId,
+      sample,
+      previousSample: session.lastGpsSample,
+    }),
+    status: walkAccepted ? 'accepted' : 'rejected',
+    reason: walkReason ?? 'gps',
+    walkReason,
+    walkAccepted,
+    receivedAt: new Date().toISOString(),
+    source: 'walk-controller',
+  })
+}
+
 export function stepWalk(input: WalkStepInput): WalkStepResult {
   const { city, session, revealedCells, seenPlaceIds, sample, now = Date.now() } = input
 
@@ -170,6 +198,8 @@ export function stepWalk(input: WalkStepInput): WalkStepResult {
   }
 
   if (!resolved.accepted || !resolved.cellId) {
+    emitGpsDiagnostic(city.id, session, resolvedSample, resolved.reason, false)
+
     return {
       session,
       revealedCells: new Set(revealedCells),
@@ -189,6 +219,8 @@ export function stepWalk(input: WalkStepInput): WalkStepResult {
     const isOlderThanLatest = session.lastSampleAt !== null && resolvedSample.capturedAt <= session.lastSampleAt
 
     if (sampleAgeMs > maximumGpsSampleAgeMs || isOlderThanLatest) {
+      emitGpsDiagnostic(city.id, session, resolvedSample, 'stale-sample', false)
+
       return {
         session,
         revealedCells: new Set(revealedCells),
@@ -208,6 +240,8 @@ export function stepWalk(input: WalkStepInput): WalkStepResult {
     const movementSpeedMps = calculateGpsMovementSpeedMps(session.lastGpsSample, resolvedSample)
 
     if (movementSpeedMps !== null && movementSpeedMps > maximumWalkingSpeedMps) {
+      emitGpsDiagnostic(city.id, session, resolvedSample, 'speed-too-fast', false)
+
       return {
         session,
         revealedCells: new Set(revealedCells),
@@ -249,6 +283,8 @@ export function stepWalk(input: WalkStepInput): WalkStepResult {
           : 'running'
       : session.status
   const cityBounds = getCityGeoBounds(city.id)
+
+  emitGpsDiagnostic(city.id, session, resolvedSample, resolved.reason, true)
 
   return {
     session: {
