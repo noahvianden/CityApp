@@ -4,7 +4,7 @@ import { registerDynamicCityGeoBounds } from './cityGeoBounds'
 import { cities } from './cityprintData'
 import { createGeneratedCityProfile, createGeneratedCityRecord, readGeneratedCityRecords, upsertGeneratedCityRecord } from './generatedCityModel'
 import { getNativeCurrentLocation, requestNativeLocationPermission } from './nativeRuntime'
-import { cityprintStorageKey, readCityprintSnapshot, writeCityprintSnapshot } from './persistence'
+import { readCityprintSnapshot, writeCityprintSnapshot } from './persistence'
 import './GeneratedCityPanel.css'
 
 function parseCoordinate(value: string) {
