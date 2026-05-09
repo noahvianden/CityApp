@@ -1,4 +1,6 @@
 import { getCityGeoBounds } from './cityGeoBounds'
+import { cities } from './cityprintData'
+import { describeDistrictResolution, resolveDistrictForCell } from './districtModel'
 import { approximateCellSizeMeters, distanceMeters } from './geoGrid'
 import type { GpsLocationSample } from './locationAdapter'
 import { getGpsRevealRadius, maximumAcceptedGpsAccuracyM, sampleToCellId } from './locationAdapter'
@@ -13,6 +15,9 @@ export type MobileGpsDiagnostic = {
   status: 'accepted' | 'rejected'
   reason: string
   cellId: string | null
+  districtName: string | null
+  districtCandidates: string[]
+  nearbyPlaceNames: string[]
   revealRadius: number
   accuracyLabel: string
   speedMps: number | null
@@ -80,6 +85,8 @@ export function buildMobileGpsDiagnostic({ cityId, sample, previousSample }: Mob
   const result = sampleToCellId(sample, cityId)
   const revealRadius = getGpsRevealRadius(sample.accuracyM)
   const bounds = getCityGeoBounds(cityId)
+  const city = cities.find((candidate) => candidate.id === cityId) ?? null
+  const districtResolution = city && result.cellId ? resolveDistrictForCell(city, result.cellId) : null
   const cityCellSize = bounds ? approximateCellSizeMeters(bounds) : null
   const movement = describeMovement(previousSample, sample)
   const messages = [
@@ -99,6 +106,10 @@ export function buildMobileGpsDiagnostic({ cityId, sample, previousSample }: Mob
     messages.push(`Accuracy must be ${maximumAcceptedGpsAccuracyM} m or better before a GPS sample can reveal cells.`)
   }
 
+  if (districtResolution) {
+    messages.push(describeDistrictResolution(districtResolution))
+  }
+
   if (result.accepted && revealRadius === 0) {
     messages.push('The sample is accepted, but only the current cell is revealed because accuracy is coarse.')
   }
@@ -111,6 +122,9 @@ export function buildMobileGpsDiagnostic({ cityId, sample, previousSample }: Mob
     status: result.accepted ? 'accepted' : 'rejected',
     reason: result.reason,
     cellId: result.cellId,
+    districtName: districtResolution?.primaryDistrict?.name ?? null,
+    districtCandidates: districtResolution?.candidateDistricts.map((district) => district.name) ?? [],
+    nearbyPlaceNames: districtResolution?.placesInCell.map((place) => place.name) ?? [],
     revealRadius,
     accuracyLabel: describeAccuracy(sample.accuracyM),
     speedMps: movement.speedMps,
