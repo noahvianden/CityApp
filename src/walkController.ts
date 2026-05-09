@@ -17,7 +17,7 @@ export type WalkSession = {
 }
 
 export type WalkStepInput = {
-  city: Pick<City, 'places' | 'walkRoute'>
+  city: Pick<City, 'id' | 'places' | 'walkRoute'>
   session: WalkSession
   revealedCells: ReadonlySet<string>
   seenPlaceIds: ReadonlySet<string>
@@ -134,7 +134,7 @@ export function stepWalk(input: WalkStepInput): WalkStepResult {
     }
   }
 
-  const resolved = sampleToCellId(resolvedSample)
+  const resolved = sampleToCellId(resolvedSample, city.id)
 
   const appendTrace = (trace: ReadonlyArray<string>, cellId: string) => {
     if (trace[trace.length - 1] === cellId) {
@@ -198,7 +198,7 @@ export function stepWalk(input: WalkStepInput): WalkStepResult {
   }
 
   const nextRevealedCells = new Set(revealedCells)
-  const recentCells = sampleNeighborhood(resolvedSample).filter((cellId) => !nextRevealedCells.has(cellId))
+  const recentCells = sampleNeighborhood(resolvedSample, city.id).filter((cellId) => !nextRevealedCells.has(cellId))
 
   recentCells.forEach((cellId) => nextRevealedCells.add(cellId))
 
