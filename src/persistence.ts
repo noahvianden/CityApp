@@ -12,10 +12,17 @@ import {
 import { createResetSnapshot } from './privacyToolkit'
 import type { City } from './cityprintData'
 
-const storageKey = 'cityprint:v1'
-const backupStorageKey = 'cityprint:v1:backup'
+export const cityprintStorageKey = 'cityprint:v1'
+export const cityprintBackupStorageKey = 'cityprint:v1:backup'
 
-type StorageLike = Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>
+export type CityprintStorageLike = Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>
+
+export type CityprintSnapshotWriteEventDetail = {
+  storageKey: string
+  backupStorageKey: string
+  serializedSnapshot: string
+  backupEnabled: boolean
+}
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -70,6 +77,13 @@ function sanitizeLocationForPersistence(location: LocationSettings): LocationSet
     ...defaultLocationSettings,
     mode: location.mode,
     permission: location.permission,
+  }
+}
+
+function sanitizeSnapshotForPersistence(snapshot: AppSnapshot): AppSnapshot {
+  return {
+    ...snapshot,
+    location: sanitizeLocationForPersistence(snapshot.location),
   }
 }
 
@@ -151,19 +165,19 @@ function parseCityProgress(value: unknown): CityProgressState | null {
   }
 }
 
-export function readCityprintSnapshot(storage: StorageLike | undefined = globalThis.localStorage): AppSnapshot {
+export function readCityprintSnapshot(storage: CityprintStorageLike | undefined = globalThis.localStorage): AppSnapshot {
   if (!storage) {
     return createResetSnapshot()
   }
 
   try {
-    const primarySnapshot = readSnapshotRecord(storage.getItem(storageKey))
+    const primarySnapshot = readCityprintSnapshotFromRaw(storage.getItem(cityprintStorageKey))
 
     if (primarySnapshot) {
       return primarySnapshot
     }
 
-    const backupSnapshot = readSnapshotRecord(storage.getItem(backupStorageKey))
+    const backupSnapshot = readCityprintSnapshotFromRaw(storage.getItem(cityprintBackupStorageKey))
 
     return backupSnapshot ?? createResetSnapshot()
   } catch {
@@ -171,28 +185,48 @@ export function readCityprintSnapshot(storage: StorageLike | undefined = globalT
   }
 }
 
-export function writeCityprintSnapshot(snapshot: AppSnapshot, storage: StorageLike | undefined = globalThis.localStorage) {
+export function serializeCityprintSnapshot(snapshot: AppSnapshot) {
+  return JSON.stringify(sanitizeSnapshotForPersistence(snapshot))
+}
+
+function emitSnapshotWrite(serializedSnapshot: string, backupEnabled: boolean) {
+  if (typeof window === 'undefined') {
+    return
+  }
+
+  window.dispatchEvent(
+    new CustomEvent<CityprintSnapshotWriteEventDetail>('cityprint:snapshot-written', {
+      detail: {
+        storageKey: cityprintStorageKey,
+        backupStorageKey: cityprintBackupStorageKey,
+        serializedSnapshot,
+        backupEnabled,
+      },
+    }),
+  )
+}
+
+export function writeCityprintSnapshot(snapshot: AppSnapshot, storage: CityprintStorageLike | undefined = globalThis.localStorage) {
   if (!storage) {
     return
   }
 
-  const serialized = JSON.stringify({
-    ...snapshot,
-    location: sanitizeLocationForPersistence(snapshot.location),
-  })
+  const serialized = serializeCityprintSnapshot(snapshot)
 
-  storage.setItem(storageKey, serialized)
+  storage.setItem(cityprintStorageKey, serialized)
 
   if (snapshot.privacy.backupEnabled) {
-    storage.setItem(backupStorageKey, serialized)
+    storage.setItem(cityprintBackupStorageKey, serialized)
   } else {
-    storage.removeItem(backupStorageKey)
+    storage.removeItem(cityprintBackupStorageKey)
   }
+
+  emitSnapshotWrite(serialized, snapshot.privacy.backupEnabled)
 }
 
-export function clearCityprintSnapshot(storage: StorageLike | undefined = globalThis.localStorage) {
-  storage?.removeItem(storageKey)
-  storage?.removeItem(backupStorageKey)
+export function clearCityprintSnapshot(storage: CityprintStorageLike | undefined = globalThis.localStorage) {
+  storage?.removeItem(cityprintStorageKey)
+  storage?.removeItem(cityprintBackupStorageKey)
 }
 
 export function getCityProgress(snapshot: AppSnapshot, city: City): CityProgressState {
@@ -209,7 +243,7 @@ export function withCityProgress(snapshot: AppSnapshot, cityId: string, progress
   }
 }
 
-function readSnapshotRecord(raw: string | null): AppSnapshot | null {
+export function readCityprintSnapshotFromRaw(raw: string | null): AppSnapshot | null {
   if (!raw) {
     return null
   }
