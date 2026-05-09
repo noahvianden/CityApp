@@ -81,6 +81,7 @@ describe('walk controller', () => {
 
   it('accepts an injected in-city gps sample while running', () => {
     const city = cities[0]
+    const sample = gpsSampleForCell('3-5')
     const step = stepWalk({
       city,
       session: {
@@ -94,7 +95,7 @@ describe('walk controller', () => {
       },
       revealedCells: new Set(city.initialRevealed),
       seenPlaceIds: new Set(['linden-cafe']),
-      sample: gpsSampleForCell('3-5'),
+      sample,
       now: 1000,
     })
 
@@ -103,7 +104,33 @@ describe('walk controller', () => {
     expect(step.sampleReason).toBe('gps')
     expect(step.session.acceptedSampleCount).toBe(1)
     expect(step.session.routeTrace.at(-1)).toBe('3-5')
+    expect(step.session.lastGpsSample).toEqual(sample)
     expect(step.session.status).toMatch(/running|paused|idle/)
+  })
+
+  it('reveals only the current cell for coarse accepted gps samples', () => {
+    const city = cities[0]
+    const step = stepWalk({
+      city,
+      session: {
+        status: 'running',
+        routeIndex: 0,
+        routeTrace: ['3-6'],
+        startedAt: 1,
+        pausedAt: null,
+        lastSampleAt: null,
+        lastSampleCellId: null,
+      },
+      revealedCells: new Set(),
+      seenPlaceIds: new Set(),
+      sample: gpsSampleForCell('3-5', 1000, 40),
+      now: 1000,
+    })
+
+    expect(step.sampleReason).toBe('gps')
+    expect(step.recentCells).toEqual(['3-5'])
+    expect(step.revealedCells.has('3-5')).toBe(true)
+    expect(step.revealedCells.has('2-4')).toBe(false)
   })
 
   it('reports rejected gps samples without advancing the session', () => {
@@ -262,6 +289,7 @@ describe('walk controller', () => {
 
   it('keeps repeated gps samples on the same cell from advancing the route', () => {
     const city = cities[0]
+    const previousSample = gpsSampleForCell('3-4', 500)
     const step = stepWalk({
       city,
       session: {
@@ -272,6 +300,7 @@ describe('walk controller', () => {
         pausedAt: null,
         lastSampleAt: 500,
         lastSampleCellId: '3-4',
+        lastGpsSample: previousSample,
       },
       revealedCells: new Set(city.initialRevealed),
       seenPlaceIds: new Set(['linden-cafe']),
@@ -285,8 +314,9 @@ describe('walk controller', () => {
     expect(step.session.status).toBe('running')
   })
 
-  it('rejects gps samples that move too far too quickly for walking', () => {
+  it('rejects gps samples that imply unrealistic walking speed in meters per second', () => {
     const city = cities[0]
+    const previousSample = gpsSampleForCell('3-5', 1000)
     const step = stepWalk({
       city,
       session: {
@@ -297,6 +327,7 @@ describe('walk controller', () => {
         pausedAt: null,
         lastSampleAt: 1000,
         lastSampleCellId: '3-5',
+        lastGpsSample: previousSample,
       },
       revealedCells: new Set(city.initialRevealed),
       seenPlaceIds: new Set(['linden-cafe']),
@@ -307,6 +338,7 @@ describe('walk controller', () => {
     expect(step.session.routeIndex).toBe(2)
     expect(step.sampleReason).toBe('speed-too-fast')
     expect(step.sampleCellId).toBe('5-3')
+    expect(step.movementSpeedMps).toBeGreaterThan(3.2)
     expect(step.session.lastSampleAt).toBe(1000)
     expect(step.session.lastSampleCellId).toBe('3-5')
     expect(step.session.status).toBe('running')
