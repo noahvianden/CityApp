@@ -1,4 +1,4 @@
-import { getCityGeoBounds } from './cityGeoBounds'
+import { resolveCityGeoBounds, isDynamicLocalCityId } from './cityGeoBounds'
 import { cities } from './cityprintData'
 import { describeDistrictResolution, resolveDistrictForCell } from './districtModel'
 import { approximateCellSizeMeters, distanceMeters } from './geoGrid'
@@ -84,7 +84,10 @@ function describeMovement(previousSample: GpsLocationSample | null | undefined, 
 export function buildMobileGpsDiagnostic({ cityId, sample, previousSample }: MobileGpsDiagnosticInput): MobileGpsDiagnostic {
   const result = sampleToCellId(sample, cityId)
   const revealRadius = getGpsRevealRadius(sample.accuracyM)
-  const bounds = getCityGeoBounds(cityId)
+  const bounds = resolveCityGeoBounds(cityId, {
+    latitude: sample.latitude,
+    longitude: sample.longitude,
+  })
   const city = cities.find((candidate) => candidate.id === cityId) ?? null
   const districtResolution = city && result.cellId ? resolveDistrictForCell(city, result.cellId) : null
   const cityCellSize = bounds ? approximateCellSizeMeters(bounds) : null
@@ -96,6 +99,10 @@ export function buildMobileGpsDiagnostic({ cityId, sample, previousSample }: Mob
 
   if (!bounds) {
     messages.push('Selected city does not have GPS bounds configured yet.')
+  }
+
+  if (bounds && isDynamicLocalCityId(cityId)) {
+    messages.push('This local atlas was generated around your first GPS sample, so Cityprint can work outside authored cities.')
   }
 
   if (result.reason === 'unmapped') {
