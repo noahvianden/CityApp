@@ -1,3 +1,5 @@
+import { getCityGeoBounds } from './cityGeoBounds'
+import { geoPointToCellId } from './geoGrid'
 import { mapCells, cellDistance } from './revealModel'
 
 export type SimulatedLocationSample = {
@@ -22,16 +24,6 @@ export type LocationSampleResult = {
   reason: 'simulated' | 'gps' | 'accuracy-too-low' | 'unmapped'
 }
 
-const cellCenters = new Map(
-  mapCells.map((cell) => [
-    cell.id,
-    {
-      x: cell.left,
-      y: cell.top,
-    },
-  ]),
-)
-
 export function createSimulatedWalkSamples(route: string[], startTime = Date.now(), stepMs = 1000): SimulatedLocationSample[] {
   return route.map((cellId, index) => ({
     kind: 'simulated',
@@ -40,7 +32,7 @@ export function createSimulatedWalkSamples(route: string[], startTime = Date.now
   }))
 }
 
-export function sampleToCellId(sample: LocationSample): LocationSampleResult {
+export function sampleToCellId(sample: LocationSample, cityId?: string): LocationSampleResult {
   if (sample.kind === 'simulated') {
     return {
       cellId: sample.cellId,
@@ -57,24 +49,25 @@ export function sampleToCellId(sample: LocationSample): LocationSampleResult {
     }
   }
 
-  const normalizedX = Math.max(0, Math.min(100, sample.longitude))
-  const normalizedY = Math.max(0, Math.min(100, sample.latitude))
-
-  let bestCellId: string | null = null
-  let bestDistance = Number.POSITIVE_INFINITY
-
-  for (const [cellId, center] of cellCenters.entries()) {
-    const distance = Math.hypot(center.x - normalizedX, center.y - normalizedY)
-
-    if (distance < bestDistance) {
-      bestDistance = distance
-      bestCellId = cellId
+  if (!cityId) {
+    return {
+      cellId: null,
+      accepted: false,
+      reason: 'unmapped',
     }
   }
 
-  return bestCellId
+  const bounds = getCityGeoBounds(cityId)
+  const cellId = bounds
+    ? geoPointToCellId(bounds, {
+        latitude: sample.latitude,
+        longitude: sample.longitude,
+      })
+    : null
+
+  return cellId
     ? {
-        cellId: bestCellId,
+        cellId,
         accepted: true,
         reason: 'gps',
       }
@@ -99,21 +92,21 @@ export function nextSampleFromRoute(route: string[], index: number, capturedAt =
   }
 }
 
-export function samplesRevealCells(samples: LocationSample[]) {
+export function samplesRevealCells(samples: LocationSample[], cityId?: string) {
   return samples
-    .map((sample) => sampleToCellId(sample))
+    .map((sample) => sampleToCellId(sample, cityId))
     .filter((result): result is LocationSampleResult & { cellId: string } => Boolean(result.cellId && result.accepted))
     .map((result) => result.cellId)
 }
 
-export function routeMatchesCell(route: string[], sample: LocationSample) {
-  const result = sampleToCellId(sample)
+export function routeMatchesCell(route: string[], sample: LocationSample, cityId?: string) {
+  const result = sampleToCellId(sample, cityId)
 
   return Boolean(result.cellId && route.includes(result.cellId))
 }
 
-export function sampleNeighborhood(sample: LocationSample) {
-  const result = sampleToCellId(sample)
+export function sampleNeighborhood(sample: LocationSample, cityId?: string) {
+  const result = sampleToCellId(sample, cityId)
 
   if (!result.cellId) {
     return []
