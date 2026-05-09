@@ -37,6 +37,9 @@ export default function MobileDiagnosticsPanel() {
   const statusLabel = diagnostic.walkAccepted ? 'Accepted' : 'Rejected'
   const cellLabel = diagnostic.cellId ?? 'No cell'
   const reasonLabel = diagnostic.walkReason ?? diagnostic.reason
+  const districtLabel = diagnostic.districtName ?? 'No district'
+  const overlapLabel = diagnostic.districtCandidates.length > 1 ? diagnostic.districtCandidates.join(' / ') : districtLabel
+  const nearbyPlaceLabel = diagnostic.nearbyPlaceNames.length > 0 ? diagnostic.nearbyPlaceNames.join(', ') : 'none'
   const cityCellSize = diagnostic.cityCellSize
     ? `${diagnostic.cityCellSize.widthMeters.toFixed(0)} x ${diagnostic.cityCellSize.heightMeters.toFixed(0)} m`
     : 'n/a'
@@ -46,7 +49,7 @@ export default function MobileDiagnosticsPanel() {
       <button className="mobile-diagnostics__summary" type="button" onClick={() => setExpanded((current) => !current)}>
         <span>
           <strong>GPS {statusLabel}</strong>
-          <small>{cellLabel} · {reasonLabel}</small>
+          <small>{cellLabel} · {districtLabel} · {reasonLabel}</small>
         </span>
         <span className="mobile-diagnostics__time">{formatTime(diagnostic.receivedAt)}</span>
       </button>
@@ -54,6 +57,18 @@ export default function MobileDiagnosticsPanel() {
       {expanded ? (
         <div className="mobile-diagnostics__details">
           <div className="mobile-diagnostics__grid">
+            <span>
+              <small>District</small>
+              <strong>{districtLabel}</strong>
+            </span>
+            <span>
+              <small>District candidates</small>
+              <strong>{overlapLabel}</strong>
+            </span>
+            <span>
+              <small>Nearby places</small>
+              <strong>{nearbyPlaceLabel}</strong>
+            </span>
             <span>
               <small>Accuracy</small>
               <strong>{diagnostic.accuracyLabel}</strong>
@@ -73,7 +88,7 @@ export default function MobileDiagnosticsPanel() {
           </div>
 
           <ul className="mobile-diagnostics__messages">
-            {diagnostic.messages.slice(0, 4).map((message) => (
+            {diagnostic.messages.slice(0, 5).map((message) => (
               <li key={message}>{message}</li>
             ))}
           </ul>
