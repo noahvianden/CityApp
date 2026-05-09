@@ -1,4 +1,4 @@
-import { getCityGeoBounds } from './cityGeoBounds'
+import { resolveCityGeoBounds } from './cityGeoBounds'
 import { geoPointToCellId } from './geoGrid'
 import { mapCells, cellDistance } from './revealModel'
 
@@ -72,7 +72,10 @@ export function sampleToCellId(sample: LocationSample, cityId?: string): Locatio
     }
   }
 
-  const bounds = getCityGeoBounds(cityId)
+  const bounds = resolveCityGeoBounds(cityId, {
+    latitude: sample.latitude,
+    longitude: sample.longitude,
+  })
   const cellId = bounds
     ? geoPointToCellId(bounds, {
         latitude: sample.latitude,
