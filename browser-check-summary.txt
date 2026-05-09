@@ -1,0 +1,14 @@
+{
+  "desktop": {
+    "prefix": "browser-check-desktop",
+    "detail": "Discovered placeKaffee LindenCafe - Old CenterCafeOld CenterSavedSmall corner cafe with broad windows and a quiet counter.Discovery contextRevealed near Lindenstrasse during a central walk.Place notes1 linkedTodayMorning lightWarm window seat after the first revealed block.quietPrivateSavedSave place memoryOpen maps",
+    "modal": "Save memoryKaffee Linden - Old CenterPlace memoryKaffee LindenRevealed near Lindenstrasse during a central walk.CafeOld CenterTitleTextRevealed near Lindenstrasse during a central walk.TagPrivateRecap allowedAdd photoSave memory",
+    "markerCount": 2
+  },
+  "mobile": {
+    "prefix": "browser-check-mobile",
+    "detail": "Discovered placeKaffee LindenCafe - Old CenterCafeOld CenterSavedSmall corner cafe with broad windows and a quiet counter.Discovery contextRevealed near Lindenstrasse during a central walk.Place notes1 linkedTodayMorning lightWarm window seat after the first revealed block.quietPrivateSavedSave place memoryOpen maps",
+    "modal": "Save memoryKaffee Linden - Old CenterPlace memoryKaffee LindenRevealed near Lindenstrasse during a central walk.CafeOld CenterTitleTextRevealed near Lindenstrasse during a central walk.TagPrivateRecap allowedAdd photoSave memory",
+    "markerCount": 2
+  }
+}

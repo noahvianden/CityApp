@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Cityprint</string>
+    <string name="title_activity_main">Cityprint</string>
+    <string name="package_name">com.cityprint.app</string>
+    <string name="custom_url_scheme">com.cityprint.app</string>
+</resources>
