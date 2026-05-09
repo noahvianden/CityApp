@@ -9,18 +9,19 @@ This branch is dedicated to the mobile version of Cityprint.
 - Updated GPS sample resolution so device GPS is only accepted when it can be mapped into the selected city.
 - Changed out-of-city or missing-city GPS samples to return `unmapped` instead of being forced into an arbitrary atlas cell.
 - Updated walk-controller GPS behavior to pass the selected city id through the location pipeline.
+- Added district-aware GPS context so mapped cells can resolve to a primary district, overlapping district candidates, and nearby authored places.
 - Added accuracy-aware GPS reveal behavior:
   - precise GPS samples reveal the current cell plus neighboring cells.
   - coarse-but-accepted GPS samples reveal only the current cell.
   - inaccurate GPS samples are rejected before mapping.
 - Replaced grid-only GPS jump rejection with meter-based walking validation.
 - Stored the last accepted GPS sample in the walk session so movement speed can be evaluated across real device samples.
-- Added mobile GPS diagnostics that summarize sample accuracy, mapped cell, reveal radius, movement speed, and rejection reasons for device testing.
+- Added mobile GPS diagnostics that summarize sample accuracy, mapped cell, district, reveal radius, movement speed, and rejection reasons for device testing.
 - Added an in-app GPS diagnostics overlay that appears after the first GPS sample and expands to show the latest diagnostic details.
 - Added native mobile snapshot storage via Capacitor Filesystem while keeping localStorage as the web/dev fallback.
 - Added a startup bootstrap step that restores the native snapshot into localStorage before React reads app state.
 - Added CI for test, lint, web build, Capacitor sync, and Android debug APK build.
-- Added unit tests for geo-grid projection, bounds checks, round-tripping cell centers, GPS acceptance, GPS rejection, stale samples, repeated samples, speed-too-fast detection, accuracy-aware reveal radius, diagnostics publishing, snapshot serialization, and mobile diagnostics.
+- Added unit tests for geo-grid projection, district resolution, bounds checks, round-tripping cell centers, GPS acceptance, GPS rejection, stale samples, repeated samples, speed-too-fast detection, accuracy-aware reveal radius, diagnostics publishing, snapshot serialization, and mobile diagnostics.
 
 ## Current GPS model
 
@@ -38,6 +39,19 @@ GPS samples now behave as follows:
 - outside selected city bounds: rejected as `unmapped`.
 - stale samples: rejected before they can advance the walk.
 - unrealistic movement speed: rejected as `speed-too-fast`.
+
+## District model
+
+Districts are still authored as sets of atlas cells. A mapped GPS cell can belong to zero, one, or multiple districts. When multiple districts match, Cityprint sorts candidates by district specificity and uses authored places in the same cell to choose a more helpful primary district.
+
+Diagnostics now expose:
+
+- primary district
+- overlapping district candidates
+- nearby authored places in the mapped cell
+- a plain-English district explanation
+
+This prepares the app for district progress, district recaps, and more meaningful discovery copy.
 
 ## Mobile storage model
 
@@ -60,11 +74,15 @@ The collapsed overlay shows:
 
 - accepted/rejected state
 - mapped cell or `No cell`
+- primary district if available
 - reason such as `gps`, `unmapped`, `accuracy-too-low`, `stale-sample`, or `speed-too-fast`
 - timestamp of the diagnostic
 
 Tapping the overlay expands it and shows:
 
+- primary district
+- overlapping district candidates
+- nearby authored places
 - accuracy label
 - reveal radius
 - movement speed
@@ -77,9 +95,10 @@ Tapping the overlay expands it and shows:
 2. Add foreground-service support if walks should continue reliably while the app is backgrounded.
 3. Add a mobile-first permission onboarding screen for location access and privacy controls.
 4. Replace the coarse city bounding boxes with more accurate city polygons or per-district bounds.
-5. Add a real map/tile layer only if the product direction requires street-level map visuals.
-6. Decide whether the diagnostics overlay should remain developer-only or become a hidden debug setting before release.
-7. Consider replacing the JSON snapshot store with SQLite only if progress/memories become too large for single-file snapshots.
+5. Add district progress and district recap surfaces using the new district resolver.
+6. Add a real map/tile layer only if the product direction requires street-level map visuals.
+7. Decide whether the diagnostics overlay should remain developer-only or become a hidden debug setting before release.
+8. Consider replacing the JSON snapshot store with SQLite only if progress/memories become too large for single-file snapshots.
 
 ## Device testing checklist
 
@@ -108,6 +127,8 @@ npm run android:run
   - The diagnostics overlay appears after the first GPS sample reaches the walk controller.
   - Samples outside the selected city are shown as unmapped.
   - Samples inside the selected city reveal nearby atlas cells.
+  - Mapped samples show district context when the cell belongs to a district.
+  - Cells with overlapping districts show candidate district context.
   - Coarse accepted samples reveal only the current cell.
   - Precise accepted samples reveal neighboring cells.
   - Repeated samples on the same cell do not advance the route.
