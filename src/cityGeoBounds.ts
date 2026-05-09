@@ -62,6 +62,10 @@ export function createGeoBoundsAroundPoint(point: GeoPoint, radiusMeters = defau
   }
 }
 
+export function registerDynamicCityGeoBounds(cityId: string, bounds: GeoBounds) {
+  dynamicCityBoundsById.set(cityId, bounds)
+}
+
 export function getCityGeoBounds(cityId: string) {
   return cityGeoBoundsById[cityId] ?? dynamicCityBoundsById.get(cityId) ?? null
 }
@@ -85,7 +89,7 @@ export function resolveCityGeoBounds(cityId: string, point?: GeoPoint | null, ra
 
   const dynamicBounds = createGeoBoundsAroundPoint(point, radiusMeters)
 
-  dynamicCityBoundsById.set(cityId, dynamicBounds)
+  registerDynamicCityGeoBounds(cityId, dynamicBounds)
 
   return dynamicBounds
 }
