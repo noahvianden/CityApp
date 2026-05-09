@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from 'react'
 import type { LucideIcon } from 'lucide-react'
+import { CircleMarker, MapContainer, Polyline, TileLayer, Tooltip, useMap } from 'react-leaflet'
+import 'leaflet/dist/leaflet.css'
 import {
   BookOpen,
   Camera,
@@ -44,7 +46,6 @@ import {
 import { cities, type Category, type City, type Place } from './cityprintData'
 import { getCityProgress, readCityprintSnapshot, writeCityprintSnapshot, clearCityprintSnapshot } from './persistence'
 import {
-  classifyFogCell,
   getVisiblePlaces,
   mapCells,
 } from './revealModel'
@@ -62,6 +63,8 @@ import {
 import { getDiscoveryReviewState } from './discoveryFlow'
 import { buildCityRecap, buildRecapExportFilename, recapExportToPrettyJson, type CityRecap } from './recapModel'
 import { buildExternalNavigationUrl } from './navigation'
+import { getCityGeoBounds } from './cityGeoBounds'
+import { cellCenterToGeoPoint } from './geoGrid'
 import {
   checkNativeLocationPermission,
   copyTextToClipboard,
@@ -107,12 +110,6 @@ function formatGpsCoordinate(value: number) {
   return value.toFixed(5)
 }
 
-function cellNoise(x: number, y: number, salt: number) {
-  const raw = Math.sin(x * 127.1 + y * 311.7 + salt * 74.7) * 43758.5453123
-
-  return raw - Math.floor(raw)
-}
-
 function describeMemoryContext(memory: Memory, places: Place[]) {
   if (memory.placeId) {
     const place = places.find((candidate) => candidate.id === memory.placeId)
@@ -140,34 +137,6 @@ function buildMemoryShareText(memory: Memory, city: City, places: Place[]) {
     `Created: ${memory.createdAt}`,
     `Note: ${memory.text}`,
   ].join('\n')
-}
-
-function getCellPolygon(cell: (typeof mapCells)[number]) {
-  const x = cell.x * 100
-  const y = cell.y * 100
-  const topInset = 8 + Math.round(cellNoise(cell.x, cell.y, 1) * 7)
-  const rightInset = 8 + Math.round(cellNoise(cell.x, cell.y, 2) * 7)
-  const bottomInset = 8 + Math.round(cellNoise(cell.x, cell.y, 3) * 7)
-  const leftInset = 8 + Math.round(cellNoise(cell.x, cell.y, 4) * 7)
-  const topWobble = Math.round((cellNoise(cell.x, cell.y, 5) - 0.5) * 10)
-  const rightWobble = Math.round((cellNoise(cell.x, cell.y, 6) - 0.5) * 10)
-  const bottomWobble = Math.round((cellNoise(cell.x, cell.y, 7) - 0.5) * 10)
-  const leftWobble = Math.round((cellNoise(cell.x, cell.y, 8) - 0.5) * 10)
-  const cornerShift = Math.round((cellNoise(cell.x, cell.y, 9) - 0.5) * 6)
-  const diagonalShift = ((cell.x + cell.y) % 2 === 0 ? 1 : -1) * 3
-
-  const points = [
-    `${x + leftInset + cornerShift},${y + topInset}`,
-    `${x + 48 + topWobble},${y + 5 + diagonalShift}`,
-    `${x + 100 - rightInset},${y + 10 + Math.round((cellNoise(cell.x, cell.y, 10) - 0.5) * 6)}`,
-    `${x + 95 + Math.round((cellNoise(cell.x, cell.y, 11) - 0.5) * 6)},${y + 48 + rightWobble}`,
-    `${x + 100 - bottomInset},${y + 100 - 8 - Math.round((cellNoise(cell.x, cell.y, 12) - 0.5) * 6)}`,
-    `${x + 50 + bottomWobble},${y + 100 - 5 - diagonalShift}`,
-    `${x + leftInset - 1 + Math.round((cellNoise(cell.x, cell.y, 13) - 0.5) * 4)},${y + 100 - bottomInset}`,
-    `${x + 5 + Math.round((cellNoise(cell.x, cell.y, 14) - 0.5) * 6)},${y + 50 + leftWobble}`,
-  ]
-
-  return `M ${points.join(' L ')} Z`
 }
 
 function getMemoryMarkerPosition(
@@ -1915,6 +1884,8 @@ function AtlasView({
         <CityMap
           city={city}
           currentCell={currentCell}
+          gpsLatitude={gpsLatitude}
+          gpsLongitude={gpsLongitude}
           isWalking={walkSession.status === 'running'}
           recentCells={recentCells}
           revealedCells={revealedCells}
@@ -1929,7 +1900,7 @@ function AtlasView({
       <div className="walk-panel">
         <div className="session-summary">
           <div className="session-copy">
-            <span className="eyebrow">Walk session</span>
+            <span className="eyebrow">Walk</span>
             <strong>{walkSummaryTitle}</strong>
             <span>{walkSummaryDetail}</span>
           </div>
@@ -2190,7 +2161,7 @@ function AtlasView({
               <div className="discovery-recap-header">
                 <span className="eyebrow">
                   <Sparkles size={15} />
-                  Private recap preview
+                  Recap preview
                 </span>
                 <strong>{recapPreview.title}</strong>
                 <p>{recapPreviewSummary}</p>
@@ -2311,6 +2282,8 @@ function AtlasView({
 type CityMapProps = {
   city: City
   currentCell?: string
+  gpsLatitude?: string
+  gpsLongitude?: string
   isWalking: boolean
   memoryMarkers: { memory: Memory; left: number; top: number; kind: 'place' | 'route' }[]
   recentCells: Set<string>
@@ -2324,111 +2297,127 @@ type CityMapProps = {
 function CityMap({
   city,
   currentCell,
+  gpsLatitude,
+  gpsLongitude,
   isWalking,
   memoryMarkers,
-  recentCells,
-  revealedCells,
   routePath,
   visiblePlaces,
   onPlaceOpen,
   onMemoryOpen,
 }: CityMapProps) {
-  const currentMapCell = mapCells.find((cell) => cell.id === currentCell)
+  const bounds = getCityGeoBounds(city.id)
+
+  if (!bounds) {
+    return <div className="city-map city-map-empty">Map bounds are not available for this city yet.</div>
+  }
+
+  const center = {
+    lat: (bounds.north + bounds.south) / 2,
+    lng: (bounds.east + bounds.west) / 2,
+  }
+  const gpsLat = Number.parseFloat(gpsLatitude ?? '')
+  const gpsLng = Number.parseFloat(gpsLongitude ?? '')
+  const liveGpsCenter =
+    Number.isFinite(gpsLat) && Number.isFinite(gpsLng)
+      ? {
+          lat: gpsLat,
+          lng: gpsLng,
+        }
+      : null
+  const currentPoint = currentCell ? cellCenterToGeoPoint(bounds, currentCell) : null
+  const focusPoint = liveGpsCenter ?? (currentPoint ? { lat: currentPoint.latitude, lng: currentPoint.longitude } : center)
+  const routePoints = (routePath ?? '')
+    .split(' ')
+    .map((point) => {
+      const [x, y] = point.split(',').map(Number)
+      if (!Number.isFinite(x) || !Number.isFinite(y)) {
+        return null
+      }
+
+      return {
+        lat: bounds.north - (y / 100) * (bounds.north - bounds.south),
+        lng: bounds.west + (x / 100) * (bounds.east - bounds.west),
+      }
+    })
+    .filter((point): point is { lat: number; lng: number } => Boolean(point))
+
+  function FollowLivePosition({ lat, lng }: { lat: number; lng: number }) {
+    const map = useMap()
+
+    useEffect(() => {
+      map.setView([lat, lng], Math.max(map.getZoom(), 14), { animate: true })
+    }, [lat, lng, map])
+
+    return null
+  }
 
   return (
-    <div className="city-map" role="img" aria-label="Partially hidden city map">
-      <svg viewBox="0 0 700 800" aria-hidden="true">
-        <rect className="map-base" x="0" y="0" width="700" height="800" rx="24" />
-        {city.map.water.map((path, index) => (
-          <path className="water" d={path} key={`water-${index}`} />
-        ))}
-        {city.map.parks.map((path, index) => (
-          <path className={index === 0 ? 'park-shape' : 'park-shape secondary'} d={path} key={`park-${index}`} />
-        ))}
-        {city.map.regions.map((region) => (
-          <path className={`district-shape district-${region.id}`} d={region.d} key={region.id} />
-        ))}
-        {mapCells.map((cell) => {
-          const state = classifyFogCell(cell.id, revealedCells, recentCells)
+    <div className="city-map" role="img" aria-label="Live city map">
+      <MapContainer center={[center.lat, center.lng]} zoom={13} scrollWheelZoom style={{ height: '100%', width: '100%' }}>
+        <TileLayer
+          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+        />
+        <FollowLivePosition lat={focusPoint.lat} lng={focusPoint.lng} />
 
-          if (state === 'hidden') {
+        {routePoints.length > 1 && (
+          <Polyline positions={routePoints.map((point) => [point.lat, point.lng] as [number, number])} pathOptions={{ color: '#d78b35', weight: 5 }} />
+        )}
+
+        {visiblePlaces.map((place) => {
+          const placePoint = cellCenterToGeoPoint(bounds, place.cell)
+
+          if (!placePoint) {
             return null
           }
 
           return (
-            <path
-              className={`city-block block-${(cell.x + cell.y) % 4} ${state}`}
-              d={getCellPolygon(cell)}
-              key={`block-${cell.id}`}
-            />
+            <CircleMarker
+              key={place.id}
+              center={[placePoint.latitude, placePoint.longitude]}
+              radius={8}
+              pathOptions={{ color: '#1f6b46', fillColor: '#2f7d57', fillOpacity: 0.9 }}
+              eventHandlers={{ click: () => onPlaceOpen(place.id) }}
+            >
+              <Tooltip direction="top" offset={[0, -8]} opacity={0.95}>
+                {place.name}
+              </Tooltip>
+            </CircleMarker>
           )
         })}
-        {city.map.streetsMajor.map((path, index) => (
-          <path className="street major" d={path} key={`street-major-${index}`} />
-        ))}
-        {city.map.streetsMinor.map((path, index) => (
-          <path className="street minor" d={path} key={`street-minor-${index}`} />
-        ))}
-        {city.map.labels.map((label) => (
-          <text className={`map-label ${label.tone ?? 'dark'}`} key={label.text} x={label.x} y={label.y}>
-            {label.text}
-          </text>
-        ))}
-        {routePath && routePath.length > 3 && <polyline className="route-line" points={routePath} />}
-        {currentMapCell && (
-          <circle
-            className={isWalking ? 'current-location moving' : 'current-location'}
-            cx={currentMapCell.left * 7}
-            cy={currentMapCell.top * 8}
-            r="12"
-          />
-        )}
-        <rect className="fog-base" x="0" y="0" width="700" height="800" rx="24" />
-        {mapCells.map((cell) => {
-          const state = classifyFogCell(cell.id, revealedCells, recentCells)
 
-          if (state === 'hidden') {
-            return null
-          }
+        {memoryMarkers.map((marker) => {
+          const latitude = bounds.north - (marker.top / 100) * (bounds.north - bounds.south)
+          const longitude = bounds.west + (marker.left / 100) * (bounds.east - bounds.west)
 
-          return <path className={`fog-cell ${state}`} key={`fog-${cell.id}`} d={getCellPolygon(cell)} />
+          return (
+            <CircleMarker
+              key={marker.memory.id}
+              center={[latitude, longitude]}
+              radius={5}
+              pathOptions={{ color: '#944f24', fillColor: '#cb8655', fillOpacity: 0.85 }}
+              eventHandlers={{ click: () => onMemoryOpen(marker.memory.id) }}
+            >
+              <Tooltip direction="top" offset={[0, -6]} opacity={0.95}>
+                {marker.memory.title}
+              </Tooltip>
+            </CircleMarker>
+          )
         })}
-      </svg>
 
-      {visiblePlaces.map((place) => {
-        const Icon = categoryIcons[place.category]
-
-        return (
-          <button
-            className="map-marker"
-            key={place.id}
-            style={{ left: `${place.x}%`, top: `${place.y}%` }}
-            type="button"
-            onClick={() => onPlaceOpen(place.id)}
-            aria-label={`Open ${place.name}`}
-            title={place.name}
+        {(liveGpsCenter || currentPoint) && (
+          <CircleMarker
+            center={[focusPoint.lat, focusPoint.lng]}
+            radius={isWalking ? 10 : 8}
+            pathOptions={{ color: '#ffffff', weight: 3, fillColor: '#2f7d57', fillOpacity: 1 }}
           >
-            <Icon size={16} />
-          </button>
-        )
-      })}
-      {memoryMarkers.map((marker) => {
-        const Icon = marker.memory.hasPhoto ? Camera : Heart
-
-        return (
-          <button
-            className={`memory-marker ${marker.kind} ${marker.memory.visibility === 'Private' ? 'private' : 'recap'}`}
-            key={marker.memory.id}
-            style={{ left: `${marker.left}%`, top: `${marker.top}%` }}
-            type="button"
-            onClick={() => onMemoryOpen(marker.memory.id)}
-            aria-label={`Open memory ${marker.memory.title}`}
-            title={marker.memory.title}
-          >
-            <Icon size={12} />
-          </button>
-        )
-      })}
+            <Tooltip direction="top" offset={[0, -6]} opacity={0.95}>
+              You are here
+            </Tooltip>
+          </CircleMarker>
+        )}
+      </MapContainer>
     </div>
   )
 }
@@ -2813,7 +2802,7 @@ function DiscoveryView({
   } = getDiscoveryReviewState(discoveryPlaces, reviewedDiscoveryIds)
   const reviewedDiscoveryPlaceIds = new Set(reviewedDiscoveryPlaces.map((place) => place.id))
   const walkCopy = describeWalkSession(walkSession, city.walkRoute.length)
-  const recapPreviewTitle = recapPreview?.title ?? `${city.name} private recap`
+  const recapPreviewTitle = recapPreview?.title ?? `${city.name} recap`
   const recapPreviewSummary =
     recapPreview?.summary ??
     `The recap will keep the walked path generalized while you inspect what surfaced around the latest reveal.`
@@ -2946,11 +2935,11 @@ function DiscoveryView({
         </section>
       ) : null}
 
-      <div className="discovery-recap-card discovery-recap-hero" aria-label="Private recap preview">
+      <div className="discovery-recap-card discovery-recap-hero" aria-label="Recap preview">
         <div className="discovery-recap-header">
           <span className="eyebrow">
             <EyeOff size={14} />
-            Private recap preview
+            Recap preview
           </span>
           <strong>{recapPreviewTitle}</strong>
           <p>{recapPreviewSummary}</p>
@@ -3210,7 +3199,7 @@ function StatsView({
 
       <section className="privacy-rules-panel">
         <div className="section-heading">
-          <strong>Recap privacy</strong>
+          <strong>Recap rules</strong>
           <small>{privacyRules.filter((rule) => rule.enabled).length} active</small>
         </div>
         <div className="privacy-rule-list">
@@ -3249,7 +3238,7 @@ function StatsView({
       <section className="recap-panel">
         <span className="eyebrow">
           <EyeOff size={14} />
-          Private recap
+          Recap
         </span>
         {previewRecap ? (
           <div className={recap ? 'recap-hero' : 'recap-hero recap-hero-preview'}>
@@ -3512,13 +3501,6 @@ function PrivacyView({
           label="Exact route traces"
           onToggle={() => onToggle('recapExactRoutes')}
         />
-        <ToggleRow
-          active={privacy.backupEnabled}
-          detail="Keep a second device-local snapshot that can restore the app if the main one is lost."
-          icon={SlidersHorizontal}
-          label="Backup"
-          onToggle={() => onToggle('backupEnabled')}
-        />
       </div>
 
       <div className="export-panel">
@@ -3528,20 +3510,6 @@ function PrivacyView({
           <Save size={17} />
           Preview export
         </button>
-      </div>
-
-      <div className="export-panel">
-        <strong>Local backup</strong>
-        <p>
-          {privacy.backupEnabled
-            ? 'A backup snapshot stays in sync with the main local snapshot and can restore progress if the primary copy disappears.'
-            : 'No backup snapshot is stored. Turn on Backup to keep a second local copy on this device.'}
-        </p>
-        <small>
-          {privacy.backupEnabled
-            ? 'Backup is active and updates with every save.'
-            : 'Backup is paused, so only the main snapshot is written.'}
-        </small>
       </div>
 
       <section className="reset-panel">

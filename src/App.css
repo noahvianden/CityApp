@@ -1,7 +1,7 @@
 .app {
   min-height: 100svh;
   display: grid;
-  place-items: center;
+  place-items: stretch;
   background:
     linear-gradient(140deg, rgba(55, 111, 95, 0.08), rgba(215, 139, 53, 0.1)),
     #f6f7f3;
@@ -10,12 +10,12 @@
 
 .phone-shell,
 .selection-panel {
-  width: min(430px, calc(100vw - 28px));
-  height: min(880px, calc(100svh - 28px));
+  width: 100vw;
+  height: 100svh;
   background: #fcfbf7;
-  border: 1px solid #dfe3dc;
-  border-radius: 28px;
-  box-shadow: 0 24px 80px rgba(41, 55, 48, 0.18);
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
   overflow: hidden;
 }
 
@@ -268,7 +268,7 @@ textarea:focus-visible {
 
 .tab-content {
   min-height: 0;
-  overflow: hidden;
+  overflow: auto;
 }
 
 .screen {
@@ -279,10 +279,10 @@ textarea:focus-visible {
 
 .atlas-screen {
   display: grid;
-  grid-template-rows: auto minmax(280px, 1fr) auto;
+  grid-template-rows: auto minmax(420px, 1fr) auto;
   gap: 12px;
   position: relative;
-  overflow: hidden;
+  overflow: auto;
 }
 
 .metric-strip,
@@ -322,7 +322,7 @@ textarea:focus-visible {
 
 .map-panel {
   min-height: 0;
-  border-radius: 18px;
+  border-radius: 8px;
   overflow: hidden;
   border: 1px solid #ced8ce;
   background:
@@ -334,11 +334,20 @@ textarea:focus-visible {
   position: relative;
   width: 100%;
   height: 100%;
-  min-height: 300px;
+  min-height: 420px;
   isolation: isolate;
-  background:
-    radial-gradient(circle at 20% 20%, rgba(255, 255, 255, 0.22), transparent 30%),
-    radial-gradient(circle at 80% 78%, rgba(255, 255, 255, 0.14), transparent 26%);
+  background: #dbe6db;
+}
+
+.city-map .leaflet-container {
+  width: 100%;
+  height: 100%;
+}
+
+.city-map-empty {
+  display: grid;
+  place-items: center;
+  padding: 16px;
 }
 
 .city-map::before {

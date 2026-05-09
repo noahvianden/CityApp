@@ -2,7 +2,6 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import './index.css'
 import App from './App.tsx'
-import GeneratedCityPanel from './GeneratedCityPanel.tsx'
 import MobileDiagnosticsPanel from './MobileDiagnosticsPanel.tsx'
 import { bootstrapGeneratedCities } from './generatedCityBootstrap.ts'
 import { bootstrapNativeSnapshotIntoLocalStorage, startNativeSnapshotMirror } from './mobileSnapshotStore.ts'
@@ -17,7 +16,6 @@ async function startApp() {
   createRoot(document.getElementById('root')!).render(
     <StrictMode>
       <App />
-      <GeneratedCityPanel />
       <MobileDiagnosticsPanel />
     </StrictMode>,
   )
