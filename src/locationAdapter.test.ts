@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { cityGeoBoundsById } from './cityGeoBounds'
+import { cityGeoBoundsById, dynamicLocalCityId, resetDynamicCityGeoBounds } from './cityGeoBounds'
 import { cellCenterToGeoPoint } from './geoGrid'
 import {
   createSimulatedWalkSamples,
@@ -56,6 +56,25 @@ describe('location adapter', () => {
     expect(sampleNeighborhood(gpsSampleForCell('berlin', '2-5'), 'berlin')).toContain('2-5')
   })
 
+  it('creates a dynamic local atlas for the current city option', () => {
+    resetDynamicCityGeoBounds(dynamicLocalCityId)
+
+    const sample = {
+      kind: 'gps' as const,
+      latitude: 48.1372,
+      longitude: 11.5756,
+      accuracyM: 12,
+      capturedAt: 1,
+    }
+
+    expect(sampleToCellId(sample, dynamicLocalCityId)).toEqual({
+      cellId: '3-4',
+      accepted: true,
+      reason: 'gps',
+    })
+    expect(sampleNeighborhood(sample, dynamicLocalCityId)).toContain('3-4')
+  })
+
   it('uses GPS accuracy to determine reveal radius', () => {
     expect(getGpsRevealRadius(10)).toBe(1)
     expect(getGpsRevealRadius(25)).toBe(1)
@@ -71,7 +90,7 @@ describe('location adapter', () => {
     expect(coarseSampleCells).toEqual(['3-4'])
   })
 
-  it('rejects gps samples without a known or matching city', () => {
+  it('rejects gps samples without a selected city and rejects out-of-authored-city samples', () => {
     expect(sampleToCellId(gpsSampleForCell('berlin', '3-4'))).toEqual({
       cellId: null,
       accepted: false,
