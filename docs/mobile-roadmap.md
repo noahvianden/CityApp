@@ -17,8 +17,10 @@ This branch is dedicated to the mobile version of Cityprint.
 - Stored the last accepted GPS sample in the walk session so movement speed can be evaluated across real device samples.
 - Added mobile GPS diagnostics that summarize sample accuracy, mapped cell, reveal radius, movement speed, and rejection reasons for device testing.
 - Added an in-app GPS diagnostics overlay that appears after the first GPS sample and expands to show the latest diagnostic details.
+- Added native mobile snapshot storage via Capacitor Filesystem while keeping localStorage as the web/dev fallback.
+- Added a startup bootstrap step that restores the native snapshot into localStorage before React reads app state.
 - Added CI for test, lint, web build, Capacitor sync, and Android debug APK build.
-- Added unit tests for geo-grid projection, bounds checks, round-tripping cell centers, GPS acceptance, GPS rejection, stale samples, repeated samples, speed-too-fast detection, accuracy-aware reveal radius, diagnostics publishing, and mobile diagnostics.
+- Added unit tests for geo-grid projection, bounds checks, round-tripping cell centers, GPS acceptance, GPS rejection, stale samples, repeated samples, speed-too-fast detection, accuracy-aware reveal radius, diagnostics publishing, snapshot serialization, and mobile diagnostics.
 
 ## Current GPS model
 
@@ -36,6 +38,19 @@ GPS samples now behave as follows:
 - outside selected city bounds: rejected as `unmapped`.
 - stale samples: rejected before they can advance the walk.
 - unrealistic movement speed: rejected as `speed-too-fast`.
+
+## Mobile storage model
+
+The app still uses localStorage as the synchronous in-memory/browser-facing source for the React app. On native mobile, a startup bridge restores the latest Capacitor Filesystem snapshot into localStorage before React renders.
+
+After startup, every normal snapshot write emits a `cityprint:snapshot-written` event. The native snapshot mirror listens to that event and writes the sanitized snapshot to app-private native storage under `Directory.Data`.
+
+Important privacy behavior:
+
+- precise GPS coordinates are stripped before serialization.
+- GPS accuracy is stripped before serialization.
+- only GPS mode and permission state are persisted.
+- backup snapshots follow the existing `backupEnabled` privacy setting.
 
 ## In-app diagnostics overlay
 
@@ -63,8 +78,8 @@ Tapping the overlay expands it and shows:
 3. Add a mobile-first permission onboarding screen for location access and privacy controls.
 4. Replace the coarse city bounding boxes with more accurate city polygons or per-district bounds.
 5. Add a real map/tile layer only if the product direction requires street-level map visuals.
-6. Move persistence from browser `localStorage` to a mobile storage adapter, such as Capacitor Preferences or SQLite.
-7. Decide whether the diagnostics overlay should remain developer-only or become a hidden debug setting before release.
+6. Decide whether the diagnostics overlay should remain developer-only or become a hidden debug setting before release.
+7. Consider replacing the JSON snapshot store with SQLite only if progress/memories become too large for single-file snapshots.
 
 ## Device testing checklist
 
@@ -98,4 +113,6 @@ npm run android:run
   - Repeated samples on the same cell do not advance the route.
   - Very stale samples are ignored.
   - Fast jumps across real GPS positions are rejected as unrealistic walking movement.
+  - App progress survives a full app restart through the native snapshot bridge.
+  - Precise GPS coordinates do not appear in exported/local/native snapshot data.
   - The CI workflow uploads the debug APK artifact after successful test/lint/build checks.
