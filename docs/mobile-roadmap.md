@@ -6,7 +6,9 @@ This branch is dedicated to the mobile version of Cityprint.
 
 - Added a geo-grid layer that maps real latitude/longitude coordinates into the existing 7 x 8 fog-of-war atlas grid.
 - Added city-level geographic bounds for Berlin and Hamburg.
-- Updated GPS sample resolution so device GPS is only accepted when it can be mapped into the selected city.
+- Added a generic `Current city` profile so Cityprint can be selected and used outside authored cities.
+- Added dynamic local city bounds that are generated around the first accepted GPS sample for non-authored cities.
+- Updated GPS sample resolution so device GPS is accepted for authored city bounds or dynamically generated local bounds.
 - Changed out-of-city or missing-city GPS samples to return `unmapped` instead of being forced into an arbitrary atlas cell.
 - Updated walk-controller GPS behavior to pass the selected city id through the location pipeline.
 - Added district-aware GPS context so mapped cells can resolve to a primary district, overlapping district candidates, and nearby authored places.
@@ -21,24 +23,35 @@ This branch is dedicated to the mobile version of Cityprint.
 - Added native mobile snapshot storage via Capacitor Filesystem while keeping localStorage as the web/dev fallback.
 - Added a startup bootstrap step that restores the native snapshot into localStorage before React reads app state.
 - Added CI for test, lint, web build, Capacitor sync, and Android debug APK build.
-- Added unit tests for geo-grid projection, district resolution, bounds checks, round-tripping cell centers, GPS acceptance, GPS rejection, stale samples, repeated samples, speed-too-fast detection, accuracy-aware reveal radius, diagnostics publishing, snapshot serialization, and mobile diagnostics.
+- Added unit tests for geo-grid projection, district resolution, bounds checks, round-tripping cell centers, dynamic local city mapping, GPS acceptance, GPS rejection, stale samples, repeated samples, speed-too-fast detection, accuracy-aware reveal radius, diagnostics publishing, snapshot serialization, and mobile diagnostics.
 
 ## Current GPS model
 
-Cityprint still uses the custom fog-of-war atlas UI. The mobile GPS layer now projects real GPS coordinates into this atlas by using each city's geographic bounding box.
+Cityprint still uses the custom fog-of-war atlas UI. The mobile GPS layer now projects real GPS coordinates into this atlas by using either authored city bounds or generated local bounds.
 
-This is intentionally simpler than a full map-provider integration. It is good enough for early device testing because it answers the first mobile question:
-
-> Is the user physically inside the selected city, and which atlas cell should this GPS sample reveal?
+For Berlin and Hamburg, Cityprint uses authored bounding boxes. For `Current city` and any non-authored city id, Cityprint creates a local atlas around the first accepted GPS sample. This means the app can work in any city without needing that city to be predefined.
 
 GPS samples now behave as follows:
 
-- `accuracyM <= 25`: accepted if inside the selected city and reveals the current cell plus neighboring cells.
-- `25 < accuracyM <= 50`: accepted if inside the selected city but reveals only the current cell.
+- `accuracyM <= 25`: accepted if inside the selected authored/generated city and reveals the current cell plus neighboring cells.
+- `25 < accuracyM <= 50`: accepted if inside the selected authored/generated city but reveals only the current cell.
 - `accuracyM > 50`: rejected as `accuracy-too-low`.
-- outside selected city bounds: rejected as `unmapped`.
+- outside selected authored bounds: rejected as `unmapped`.
+- outside generated local bounds after the local atlas is created: rejected as `unmapped`.
 - stale samples: rejected before they can advance the walk.
 - unrealistic movement speed: rejected as `speed-too-fast`.
+
+## Worldwide current city mode
+
+The `Current city` profile is a generic local atlas that works anywhere. It uses neutral districts, generic discovery slots, and the same fog-of-war model as authored cities.
+
+When the first accurate GPS sample arrives, Cityprint creates a local bounding box around that point and treats it as the selected city area. Future samples are mapped into that generated atlas. This is not yet a real city search/geocoder; it is a worldwide fallback mode that makes the app usable outside Berlin and Hamburg.
+
+Next step for full city choice:
+
+- add a custom city entry form/search field.
+- optionally use geocoding later to name the generated city.
+- persist generated city names and bounds across app restarts.
 
 ## District model
 
@@ -91,14 +104,15 @@ Tapping the overlay expands it and shows:
 
 ## Remaining mobile work
 
-1. Test the Android APK on a physical device.
-2. Add foreground-service support if walks should continue reliably while the app is backgrounded.
-3. Add a mobile-first permission onboarding screen for location access and privacy controls.
-4. Replace the coarse city bounding boxes with more accurate city polygons or per-district bounds.
-5. Add district progress and district recap surfaces using the new district resolver.
-6. Add a real map/tile layer only if the product direction requires street-level map visuals.
-7. Decide whether the diagnostics overlay should remain developer-only or become a hidden debug setting before release.
-8. Consider replacing the JSON snapshot store with SQLite only if progress/memories become too large for single-file snapshots.
+1. Add a custom city entry/search flow that creates named generated cities.
+2. Persist generated city bounds and display names across app restarts.
+3. Add foreground-service support if walks should continue reliably while the app is backgrounded.
+4. Add a mobile-first permission onboarding screen for location access and privacy controls.
+5. Replace the coarse city bounding boxes with more accurate city polygons or per-district bounds.
+6. Add district progress and district recap surfaces using the new district resolver.
+7. Add a real map/tile layer only if the product direction requires street-level map visuals.
+8. Decide whether the diagnostics overlay should remain developer-only or become a hidden debug setting before release.
+9. Consider replacing the JSON snapshot store with SQLite only if progress/memories become too large for single-file snapshots.
 
 ## Device testing checklist
 
@@ -125,8 +139,10 @@ npm run android:run
   - Denying permission keeps the GPS lane blocked.
   - Granting permission allows samples to enter the location feed.
   - The diagnostics overlay appears after the first GPS sample reaches the walk controller.
-  - Samples outside the selected city are shown as unmapped.
-  - Samples inside the selected city reveal nearby atlas cells.
+  - `Current city` accepts accurate GPS samples outside Berlin/Hamburg.
+  - The first `Current city` GPS sample creates a local atlas around the current location.
+  - Samples outside the selected authored city are shown as unmapped.
+  - Samples inside the selected authored/generated city reveal nearby atlas cells.
   - Mapped samples show district context when the cell belongs to a district.
   - Cells with overlapping districts show candidate district context.
   - Coarse accepted samples reveal only the current cell.
