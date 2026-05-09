@@ -24,6 +24,21 @@ export type LocationSampleResult = {
   reason: 'simulated' | 'gps' | 'accuracy-too-low' | 'unmapped'
 }
 
+export const maximumAcceptedGpsAccuracyM = 50
+export const fullRevealGpsAccuracyM = 25
+
+export function getGpsRevealRadius(accuracyM: number) {
+  if (!Number.isFinite(accuracyM) || accuracyM > maximumAcceptedGpsAccuracyM) {
+    return 0
+  }
+
+  return accuracyM <= fullRevealGpsAccuracyM ? 1 : 0
+}
+
+export function getSampleRevealRadius(sample: LocationSample) {
+  return sample.kind === 'simulated' ? 1 : getGpsRevealRadius(sample.accuracyM)
+}
+
 export function createSimulatedWalkSamples(route: string[], startTime = Date.now(), stepMs = 1000): SimulatedLocationSample[] {
   return route.map((cellId, index) => ({
     kind: 'simulated',
@@ -41,7 +56,7 @@ export function sampleToCellId(sample: LocationSample, cityId?: string): Locatio
     }
   }
 
-  if (sample.accuracyM > 50) {
+  if (sample.accuracyM > maximumAcceptedGpsAccuracyM) {
     return {
       cellId: null,
       accepted: false,
@@ -112,5 +127,7 @@ export function sampleNeighborhood(sample: LocationSample, cityId?: string) {
     return []
   }
 
-  return mapCells.filter((cell) => cellDistance(cell.id, result.cellId!) <= 1).map((cell) => cell.id)
+  const revealRadius = getSampleRevealRadius(sample)
+
+  return mapCells.filter((cell) => cellDistance(cell.id, result.cellId!) <= revealRadius).map((cell) => cell.id)
 }
