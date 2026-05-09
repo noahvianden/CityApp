@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { cityGeoBoundsById } from './cityGeoBounds'
 import { cities } from './cityprintData'
 import { cellCenterToGeoPoint } from './geoGrid'
+import { getLatestMobileGpsDiagnostic, subscribeMobileGpsDiagnostics } from './mobileDiagnosticsEvents'
 import { createIdleWalkSession, pauseWalkSession, resumeWalkSession, startWalkSession, stepWalk } from './walkController'
 
 function gpsSampleForCell(cellId: string, capturedAt = 1000, accuracyM = 12) {
@@ -108,6 +109,36 @@ describe('walk controller', () => {
     expect(step.session.status).toMatch(/running|paused|idle/)
   })
 
+  it('publishes GPS diagnostics for accepted samples', () => {
+    const city = cities[0]
+    const received: string[] = []
+    const unsubscribe = subscribeMobileGpsDiagnostics((diagnostic) => {
+      received.push(`${diagnostic.walkAccepted}:${diagnostic.cellId}:${diagnostic.walkReason}`)
+    })
+
+    stepWalk({
+      city,
+      session: {
+        status: 'running',
+        routeIndex: 0,
+        routeTrace: ['3-6'],
+        startedAt: 1,
+        pausedAt: null,
+        lastSampleAt: null,
+        lastSampleCellId: null,
+      },
+      revealedCells: new Set(city.initialRevealed),
+      seenPlaceIds: new Set(['linden-cafe']),
+      sample: gpsSampleForCell('3-5'),
+      now: 1000,
+    })
+
+    unsubscribe()
+
+    expect(received.at(-1)).toBe('true:3-5:gps')
+    expect(getLatestMobileGpsDiagnostic()?.walkAccepted).toBe(true)
+  })
+
   it('reveals only the current cell for coarse accepted gps samples', () => {
     const city = cities[0]
     const step = stepWalk({
@@ -157,6 +188,8 @@ describe('walk controller', () => {
     expect(step.sampleReason).toBe('accuracy-too-low')
     expect(step.session.acceptedSampleCount ?? 0).toBe(0)
     expect(step.session.status).toBe('running')
+    expect(getLatestMobileGpsDiagnostic()?.walkReason).toBe('accuracy-too-low')
+    expect(getLatestMobileGpsDiagnostic()?.walkAccepted).toBe(false)
   })
 
   it('rejects out-of-city gps samples as unmapped', () => {
@@ -342,5 +375,6 @@ describe('walk controller', () => {
     expect(step.session.lastSampleAt).toBe(1000)
     expect(step.session.lastSampleCellId).toBe('3-5')
     expect(step.session.status).toBe('running')
+    expect(getLatestMobileGpsDiagnostic()?.walkReason).toBe('speed-too-fast')
   })
 })
