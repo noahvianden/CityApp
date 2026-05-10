@@ -350,7 +350,17 @@ function LockAtlasBounds({ bounds }: { bounds: GeoBounds }) {
     ]
 
     map.setMaxBounds(nextBounds)
-    map.fitBounds(nextBounds, { animate: false, padding: [24, 24] })
+    map.fitBounds(nextBounds, {
+      animate: false,
+      paddingTopLeft: [0, 24],
+      paddingBottomRight: [24, 24],
+    })
+
+    const cityLeftEdge = map.latLngToContainerPoint([bounds.south, bounds.west]).x
+
+    if (Number.isFinite(cityLeftEdge) && Math.abs(cityLeftEdge) > 0.5) {
+      map.panBy([cityLeftEdge, 0], { animate: false })
+    }
   }, [bounds, map])
 
   return null
