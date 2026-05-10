@@ -104,7 +104,7 @@ export const genericCurrentCity: City = {
     {
       id: 'east-side',
       name: 'East Side',
-      cells: cells((x, _y) => x >= 5),
+      cells: cells((x) => x >= 5),
     },
     {
       id: 'south-side',
@@ -114,7 +114,7 @@ export const genericCurrentCity: City = {
     {
       id: 'west-side',
       name: 'West Side',
-      cells: cells((x, _y) => x <= 1),
+      cells: cells((x) => x <= 1),
     },
   ],
   places: [

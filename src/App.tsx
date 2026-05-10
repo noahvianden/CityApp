@@ -404,10 +404,10 @@ function App() {
     }
 
     bootedSimulatedLocation.current = true
-    void useSimulatedLocation()
+    void activateSimulatedLocation()
   }, [])
 
-  async function useSimulatedLocation() {
+  async function activateSimulatedLocation() {
     setMode('simulated')
     setIsLocating(true)
 
@@ -495,7 +495,7 @@ function App() {
         <button
           className={mode === 'simulated' ? 'atlas-control active' : 'atlas-control'}
           type="button"
-          onClick={useSimulatedLocation}
+          onClick={activateSimulatedLocation}
           aria-label="Simulated"
           aria-busy={isLocating && mode === 'simulated'}
         >
