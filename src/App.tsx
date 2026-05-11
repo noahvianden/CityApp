@@ -40,6 +40,10 @@ type ViewportSize = {
   height: number
 }
 
+type UpdatableGeoJsonSource = {
+  setData: (data: MapLibrePointFeature) => void
+}
+
 const cityStyleUrl = `${import.meta.env.BASE_URL}city-style.json`
 const worldMaskRing: [number, number][] = [
   [-180, 90],
@@ -49,6 +53,8 @@ const worldMaskRing: [number, number][] = [
   [-180, 90],
 ]
 const detailZoom = 16.25
+const gpsNudgeMeters = 10
+const metersPerLatitudeDegree = 111_320
 const appTabs: AppTabItem[] = [
   { key: 'atlas', icon: 'A', label: 'Atlas', dummyTitle: 'Atlas', dummyBody: 'Explore the current city boundary.' },
   { key: 'memories', icon: 'M', label: 'Memories', dummyTitle: 'Memories coming soon', dummyBody: 'This placeholder will show visited places, saved moments, and city notes.' },
@@ -163,9 +169,35 @@ function outsideCityMaskGeometry(boundary: BoundedAtlasPoint['boundary']) {
   return { type: 'Polygon' as const, coordinates: [worldMaskRing, ...boundaryRingsFromBoundary(boundary)] }
 }
 
+function getPointSource(map: import('maplibre-gl').Map) {
+  return map.getSource('atlas-point-source') as UpdatableGeoJsonSource | undefined
+}
+
+function updatePointSource(map: import('maplibre-gl').Map, atlas: BoundedAtlasPoint, mode: LocationMode) {
+  getPointSource(map)?.setData(pointToFeature(atlas.point, mode))
+}
+
+function centerMapOnPoint(map: import('maplibre-gl').Map, point: AtlasPoint, duration = 180) {
+  map.easeTo({
+    center: [point.longitude, point.latitude],
+    duration,
+    essential: true,
+    zoom: map.getZoom(),
+  })
+}
+
 function MapLibreCityMap({ atlas, mode, viewAction }: { atlas: BoundedAtlasPoint, mode: LocationMode, viewAction: MapViewAction | null }) {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const mapRef = useRef<import('maplibre-gl').Map | null>(null)
+  const latestAtlasRef = useRef(atlas)
+  const latestModeRef = useRef(mode)
+  const handledViewActionNonce = useRef<number | null>(null)
+  const boundaryKey = `${atlas.cityId}:${atlas.bounds.south}:${atlas.bounds.west}:${atlas.bounds.north}:${atlas.bounds.east}`
+
+  useEffect(() => {
+    latestAtlasRef.current = atlas
+    latestModeRef.current = mode
+  }, [atlas, mode])
 
   useEffect(() => {
     let cancelled = false
@@ -179,6 +211,8 @@ function MapLibreCityMap({ atlas, mode, viewAction }: { atlas: BoundedAtlasPoint
 
     void (async () => {
       const maplibregl = await import('maplibre-gl')
+      const initialAtlas = latestAtlasRef.current
+      const initialMode = latestModeRef.current
 
       if (cancelled || !containerRef.current) {
         return
@@ -187,7 +221,7 @@ function MapLibreCityMap({ atlas, mode, viewAction }: { atlas: BoundedAtlasPoint
       map = new maplibregl.Map({
         container: containerRef.current,
         style: cityStyleUrl,
-        center: [atlas.point.longitude, atlas.point.latitude],
+        center: [initialAtlas.point.longitude, initialAtlas.point.latitude],
         zoom: 14,
         attributionControl: false,
         dragRotate: false,
@@ -211,17 +245,15 @@ function MapLibreCityMap({ atlas, mode, viewAction }: { atlas: BoundedAtlasPoint
           return
         }
 
-        const pointFeature = pointToFeature(atlas.point, mode)
-
         map.addSource('atlas-boundary-source', {
           type: 'geojson',
-          data: { type: 'Feature', geometry: atlas.boundary, properties: {} },
+          data: { type: 'Feature', geometry: initialAtlas.boundary, properties: {} },
         })
         map.addSource('atlas-outside-mask-source', {
           type: 'geojson',
-          data: { type: 'Feature', geometry: outsideCityMaskGeometry(atlas.boundary), properties: {} },
+          data: { type: 'Feature', geometry: outsideCityMaskGeometry(initialAtlas.boundary), properties: {} },
         })
-        map.addSource('atlas-point-source', { type: 'geojson', data: pointFeature })
+        map.addSource('atlas-point-source', { type: 'geojson', data: pointToFeature(initialAtlas.point, initialMode) })
 
         map.addLayer({
           id: 'atlas-outside-city-mask',
@@ -269,8 +301,8 @@ function MapLibreCityMap({ atlas, mode, viewAction }: { atlas: BoundedAtlasPoint
         })
 
         const cityBounds: [[number, number], [number, number]] = [
-          [atlas.bounds.west, atlas.bounds.south],
-          [atlas.bounds.east, atlas.bounds.north],
+          [initialAtlas.bounds.west, initialAtlas.bounds.south],
+          [initialAtlas.bounds.east, initialAtlas.bounds.north],
         ]
 
         map.fitBounds(cityBounds, { animate: false, padding: 0 })
@@ -285,20 +317,32 @@ function MapLibreCityMap({ atlas, mode, viewAction }: { atlas: BoundedAtlasPoint
       mapRef.current = null
       map?.remove()
     }
+  }, [boundaryKey])
+
+  useEffect(() => {
+    const map = mapRef.current
+
+    if (!map || !map.isStyleLoaded()) {
+      return
+    }
+
+    updatePointSource(map, atlas, mode)
+    centerMapOnPoint(map, atlas.point)
   }, [atlas, mode])
 
   useEffect(() => {
     const map = mapRef.current
 
-    if (!viewAction || !map) {
+    if (!viewAction || !map || handledViewActionNonce.current === viewAction.nonce) {
       return
     }
 
+    handledViewActionNonce.current = viewAction.nonce
     map.easeTo({
       center: [atlas.point.longitude, atlas.point.latitude],
       duration: 450,
       essential: true,
-      zoom: viewAction.type === 'detail' ? Math.max(map.getZoom(), detailZoom) : Math.max(map.getZoom(), map.getMinZoom()),
+      zoom: viewAction.type === 'detail' ? Math.max(map.getZoom(), detailZoom) : map.getZoom(),
     })
   }, [atlas.point.latitude, atlas.point.longitude, viewAction])
 
@@ -474,8 +518,9 @@ function App() {
         return currentAtlas
       }
 
-      const latitudeStep = Math.max((currentAtlas.bounds.north - currentAtlas.bounds.south) * 0.025, 0.00025)
-      const longitudeStep = Math.max((currentAtlas.bounds.east - currentAtlas.bounds.west) * 0.025, 0.00025)
+      const latitudeStep = gpsNudgeMeters / metersPerLatitudeDegree
+      const longitudeMetersPerDegree = Math.max(metersPerLatitudeDegree * Math.cos(currentAtlas.point.latitude * Math.PI / 180), 1)
+      const longitudeStep = gpsNudgeMeters / longitudeMetersPerDegree
       const latitudeOffset = direction === 'north' ? latitudeStep : direction === 'south' ? -latitudeStep : 0
       const longitudeOffset = direction === 'east' ? longitudeStep : direction === 'west' ? -longitudeStep : 0
 
@@ -523,6 +568,13 @@ function App() {
               <button type="button" onClick={() => requestMapViewAction('snap')}>Snap</button>
               <button type="button" onClick={() => requestMapViewAction('detail')}>Zoom</button>
             </div>
+            <div className="atlas-joycon" role="group" aria-label="Move GPS location">
+              <button className="atlas-joycon-button north" type="button" onClick={() => nudgeGpsLocation('north')} aria-label="Move GPS north">↑</button>
+              <button className="atlas-joycon-button west" type="button" onClick={() => nudgeGpsLocation('west')} aria-label="Move GPS west">←</button>
+              <span className="atlas-joycon-center" aria-hidden="true" />
+              <button className="atlas-joycon-button east" type="button" onClick={() => nudgeGpsLocation('east')} aria-label="Move GPS east">→</button>
+              <button className="atlas-joycon-button south" type="button" onClick={() => nudgeGpsLocation('south')} aria-label="Move GPS south">↓</button>
+            </div>
           </div>
         ) : (
           <div className="atlas-empty-state" style={mapFrameStyle}>
@@ -543,16 +595,6 @@ function App() {
             <Route size={20} aria-hidden="true" />
             <span>Simulated</span>
           </button>
-        </div>
-      ) : null}
-
-      {shouldShowAtlasMap && activeAtlas ? (
-        <div className="atlas-joycon" role="group" aria-label="Move GPS location">
-          <button className="atlas-joycon-button north" type="button" onClick={() => nudgeGpsLocation('north')} aria-label="Move GPS north">↑</button>
-          <button className="atlas-joycon-button west" type="button" onClick={() => nudgeGpsLocation('west')} aria-label="Move GPS west">←</button>
-          <span className="atlas-joycon-center" aria-hidden="true" />
-          <button className="atlas-joycon-button east" type="button" onClick={() => nudgeGpsLocation('east')} aria-label="Move GPS east">→</button>
-          <button className="atlas-joycon-button south" type="button" onClick={() => nudgeGpsLocation('south')} aria-label="Move GPS south">↓</button>
         </div>
       ) : null}
 
