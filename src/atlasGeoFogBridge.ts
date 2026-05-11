@@ -31,7 +31,7 @@ const oldRevealLayerId = 'atlas-reveal-glow'
 const oldFogSourceId = 'atlas-fog-source'
 const oldRevealSourceId = 'atlas-reveal-source'
 const storagePrefix = 'cityapp:atlas-organic-fog:v1:'
-const fogColor = '#6f7472'
+const fogColor = '#c6c9c7'
 const districtBoundaryColor = '#49b7a4'
 const cityOutlineColor = '#2f8f7f'
 const outsideAreaColor = '#0d3b2f'
@@ -382,7 +382,7 @@ function styleMapLayers(map: MapInstance) {
 
   if (map.getLayer(outsideMaskLayerId)) {
     map.setPaintProperty(outsideMaskLayerId, 'fill-color', outsideAreaColor)
-    map.setPaintProperty(outsideMaskLayerId, 'fill-opacity', 0)
+    map.setPaintProperty(outsideMaskLayerId, 'fill-opacity', 1)
   }
 
   if (map.getLayer(outlineLayerId)) {
@@ -492,7 +492,7 @@ function patchMapPrototype(prototype: PatchableMap) {
     const layer = args[0] as { id?: unknown, paint?: Record<string, unknown> }
     if (layer.id === accuracyLayerId || layer.id === oldRevealLayerId || layer.id === oldFogLayerId) return this
     if (layer.id === outsideMaskLayerId) {
-      layer.paint = { ...(layer.paint ?? {}), 'fill-color': outsideAreaColor, 'fill-opacity': 0 }
+      layer.paint = { ...(layer.paint ?? {}), 'fill-color': outsideAreaColor, 'fill-opacity': 1 }
     }
     if (layer.id === outlineLayerId) {
       layer.paint = { ...(layer.paint ?? {}), 'line-color': cityOutlineColor, 'line-opacity': 0.9, 'line-width': 2.2 }
