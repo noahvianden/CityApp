@@ -5,6 +5,7 @@ type Boundary = { type: 'Polygon', coordinates: Ring[] } | { type: 'MultiPolygon
 type Bounds = { west: number, south: number, east: number, north: number }
 type RevealPoint = { lng: number, lat: number, radiusM: number, revealedAt: number }
 type AtlasFogSnapshot = { cityKey: string | null, progress: number, revealedPoints: number }
+type UpdatableGeoJsonSource = { setData: (data: unknown) => void }
 type PatchableMap = typeof import('maplibre-gl').Map.prototype & { __atlasFogPatched?: boolean }
 type FogState = {
   map: MapInstance
