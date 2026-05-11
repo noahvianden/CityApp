@@ -23,6 +23,34 @@ type AtlasFrameSize = {
   height: number
 }
 
+type CityLookupAddress = {
+  city?: string
+  town?: string
+  village?: string
+  municipality?: string
+  county?: string
+  state?: string
+  country_code?: string
+}
+
+type NominatimPlace = {
+  addresstype?: string
+  address?: CityLookupAddress
+  boundingbox?: unknown
+  category?: string
+  display_name?: string
+  extratags?: {
+    'de:place'?: string
+    linked_place?: string
+  }
+  geojson?: unknown
+  lat?: string
+  lon?: string
+  name?: string
+  osm_type?: string
+  type?: string
+}
+
 type BoundaryGeometry =
   | {
       type: 'Polygon'
@@ -40,18 +68,22 @@ type BoundedAtlasPoint = {
 }
 
 type CitySearchCandidate = BoundedAtlasPoint & {
+  address: CityLookupAddress | undefined
   addressType: string | undefined
   category: string | undefined
   countryCode: string | undefined
   dePlace: string | undefined
+  displayName: string | undefined
   linkedPlace: string | undefined
+  name: string | undefined
   osmType: string | undefined
   placeType: string | undefined
 }
 
+const fallbackCityId = 'hamburg'
 const fallbackPoint: AtlasPoint = {
-  latitude: 52.52,
-  longitude: 13.405,
+  latitude: 53.5511,
+  longitude: 9.9937,
 }
 
 const citySearchSyllables = ['berg', 'burg', 'dorf', 'furt', 'hausen', 'heim', 'stadt', 'bach', 'feld', 'hagen', 'kirchen', 'weiler']
@@ -130,15 +162,81 @@ function pointFromBounds(bounds: GeoBounds): AtlasPoint {
   }
 }
 
+function getFallbackCityBounds() {
+  return getCityGeoBounds(fallbackCityId) ?? createGeoBoundsAroundPoint(fallbackPoint)
+}
+
+function getFallbackCityAtlasPoint(): BoundedAtlasPoint {
+  const bounds = getFallbackCityBounds()
+
+  return {
+    point: containsGeoPoint(fallbackPoint, bounds) ? fallbackPoint : pointFromBounds(bounds),
+    bounds,
+    boundary: boundaryFromBounds(bounds),
+  }
+}
+
+function isBerlinName(value: string | undefined) {
+  return /\bberlin\b/i.test(value ?? '')
+}
+
+function getAddressCityNames(address: CityLookupAddress | undefined) {
+  const names = [address?.city, address?.town, address?.village, address?.municipality, address?.county, address?.state]
+
+  return Array.from(new Set(names.filter((name): name is string => Boolean(name && !isBerlinName(name)))))
+}
+
+function isBerlinPlace(candidate: CitySearchCandidate) {
+  return isBerlinName(candidate.name)
+    || isBerlinName(candidate.displayName)
+    || isBerlinName(candidate.address?.city)
+    || isBerlinName(candidate.address?.town)
+    || isBerlinName(candidate.address?.village)
+    || isBerlinName(candidate.address?.municipality)
+    || isBerlinName(candidate.address?.county)
+    || isBerlinName(candidate.address?.state)
+}
+
+function toCitySearchCandidate(place: NominatimPlace): CitySearchCandidate | null {
+  const bounds = parseNominatimBounds(place.boundingbox)
+  const boundary = parseBoundaryGeometry(place.geojson)
+  const latitude = Number(place.lat)
+  const longitude = Number(place.lon)
+
+  if (!bounds || !boundary || !Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+    return null
+  }
+
+  return {
+    boundary,
+    bounds,
+    point: containsGeoPoint({ latitude, longitude }, bounds) ? { latitude, longitude } : pointFromBounds(bounds),
+    address: place.address,
+    addressType: place.addresstype,
+    category: place.category,
+    countryCode: place.address?.country_code,
+    dePlace: place.extratags?.['de:place'],
+    displayName: place.display_name,
+    linkedPlace: place.extratags?.linked_place,
+    name: place.name,
+    osmType: place.osm_type,
+    placeType: place.type,
+  }
+}
+
 function isGermanCityBoundary(candidate: CitySearchCandidate) {
   const isGerman = candidate.countryCode === 'de'
   const isBoundaryRelation = candidate.osmType === 'relation' && candidate.category === 'boundary' && candidate.placeType === 'administrative'
   const isCity = candidate.addressType === 'city' || candidate.dePlace === 'city' || candidate.linkedPlace === 'city'
 
-  return isGerman && isBoundaryRelation && isCity
+  return isGerman && isBoundaryRelation && isCity && !isBerlinPlace(candidate)
 }
 
 async function fetchCitySearchResult(query: string): Promise<BoundedAtlasPoint | null> {
+  if (isBerlinName(query)) {
+    return null
+  }
+
   const params = new URLSearchParams({
     format: 'jsonv2',
     q: query,
@@ -162,47 +260,9 @@ async function fetchCitySearchResult(query: string): Promise<BoundedAtlasPoint |
     return null
   }
 
-  const places = await response.json() as Array<{
-    addresstype?: string
-    address?: {
-      country_code?: string
-    }
-    boundingbox?: unknown
-    category?: string
-    extratags?: {
-      'de:place'?: string
-      linked_place?: string
-    }
-    geojson?: unknown
-    lat?: string
-    lon?: string
-    osm_type?: string
-    type?: string
-  }>
+  const places = await response.json() as NominatimPlace[]
   const boundedPlaces = places
-    .map((place) => {
-      const bounds = parseNominatimBounds(place.boundingbox)
-      const boundary = parseBoundaryGeometry(place.geojson)
-      const latitude = Number(place.lat)
-      const longitude = Number(place.lon)
-
-      if (!bounds || !boundary || !Number.isFinite(latitude) || !Number.isFinite(longitude)) {
-        return null
-      }
-
-      return {
-        boundary,
-        bounds,
-        point: containsGeoPoint({ latitude, longitude }, bounds) ? { latitude, longitude } : pointFromBounds(bounds),
-        addressType: place.addresstype,
-        category: place.category,
-        countryCode: place.address?.country_code,
-        dePlace: place.extratags?.['de:place'],
-        linkedPlace: place.extratags?.linked_place,
-        osmType: place.osm_type,
-        placeType: place.type,
-      }
-    })
+    .map(toCitySearchCandidate)
     .filter((place): place is CitySearchCandidate => place !== null)
   const candidates = boundedPlaces.filter(isGermanCityBoundary)
   const candidate = candidates[Math.floor(Math.random() * candidates.length)]
@@ -221,6 +281,7 @@ async function fetchCityBoundary(point: AtlasPoint): Promise<BoundedAtlasPoint |
     lon: point.longitude.toString(),
     zoom: '10',
     addressdetails: '1',
+    extratags: '1',
     polygon_geojson: '1',
     'accept-language': 'en',
   })
@@ -236,15 +297,29 @@ async function fetchCityBoundary(point: AtlasPoint): Promise<BoundedAtlasPoint |
     return null
   }
 
-  const payload = await response.json() as {
-    boundingbox?: unknown
-    geojson?: unknown
+  const payload = await response.json() as NominatimPlace
+  const reverseCandidate = toCitySearchCandidate(payload)
+
+  if (reverseCandidate && isGermanCityBoundary(reverseCandidate)) {
+    return {
+      point: containsGeoPoint(point, reverseCandidate.bounds) ? point : reverseCandidate.point,
+      bounds: reverseCandidate.bounds,
+      boundary: reverseCandidate.boundary,
+    }
   }
 
-  const bounds = parseNominatimBounds(payload.boundingbox)
-  const boundary = parseBoundaryGeometry(payload.geojson)
+  for (const cityName of getAddressCityNames(payload.address)) {
+    const cityBoundary = await fetchCitySearchResult(cityName)
 
-  return bounds && boundary ? { point, bounds, boundary } : null
+    if (cityBoundary) {
+      return {
+        ...cityBoundary,
+        point: containsGeoPoint(point, cityBoundary.bounds) ? point : cityBoundary.point,
+      }
+    }
+  }
+
+  return null
 }
 
 async function getSimulatedCityPoint(): Promise<BoundedAtlasPoint> {
@@ -264,14 +339,10 @@ async function getSimulatedCityPoint(): Promise<BoundedAtlasPoint> {
     }
   }
 
-  return {
-    point: fallbackPoint,
-    bounds: createGeoBoundsAroundPoint(fallbackPoint),
-    boundary: boundaryFromBounds(createGeoBoundsAroundPoint(fallbackPoint)),
-  }
+  return getFallbackCityAtlasPoint()
 }
 
-function getFallbackBoundaryForPoint(point: AtlasPoint): BoundedAtlasPoint {
+function getAuthoredBoundaryForPoint(point: AtlasPoint): BoundedAtlasPoint | null {
   for (const city of cities) {
     const bounds = getCityGeoBounds(city.id)
 
@@ -284,13 +355,7 @@ function getFallbackBoundaryForPoint(point: AtlasPoint): BoundedAtlasPoint {
     }
   }
 
-  const bounds = createGeoBoundsAroundPoint(point)
-
-  return {
-    point,
-    bounds,
-    boundary: boundaryFromBounds(bounds),
-  }
+  return null
 }
 
 function toBrowserGpsSample(position: GeolocationPosition): GpsLocationSample {
@@ -449,7 +514,7 @@ function BoundaryMaskLayer({ boundary }: { boundary: BoundaryGeometry }) {
 
 function App() {
   const initialPoint = useMemo(() => fallbackPoint, [])
-  const initialBounds = useMemo(() => createGeoBoundsAroundPoint(initialPoint), [initialPoint])
+  const initialBounds = useMemo(() => getFallbackCityBounds(), [])
   const initialBoundary = useMemo(() => boundaryFromBounds(initialBounds), [initialBounds])
   const [mode, setMode] = useState<LocationMode>('simulated')
   const [activePoint, setActivePoint] = useState<AtlasPoint>(initialPoint)
@@ -515,11 +580,15 @@ function App() {
           longitude: sample.longitude,
           accuracyM: sample.accuracyM,
         }
-        const nextBoundary = await fetchCityBoundary(nextPoint) ?? getFallbackBoundaryForPoint(nextPoint)
+        const nextBoundary = await fetchCityBoundary(nextPoint) ?? getAuthoredBoundaryForPoint(nextPoint)
 
-        setActivePoint(nextBoundary.point)
-        setActiveBounds(nextBoundary.bounds)
-        setActiveBoundary(nextBoundary.boundary)
+        if (nextBoundary) {
+          setActivePoint(nextBoundary.point)
+          setActiveBounds(nextBoundary.bounds)
+          setActiveBoundary(nextBoundary.boundary)
+        } else {
+          setActivePoint(nextPoint)
+        }
       }
     } finally {
       setIsLocating(false)
