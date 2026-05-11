@@ -1,6 +1,5 @@
 import { useEffect, useState, type CSSProperties } from 'react'
-import './atlasGeoFogBridge'
-import { getAtlasFogSnapshot, subscribeAtlasFog } from './atlasGeoFogBridge'
+import { getAtlasFogSnapshot, installAtlasGeoFogBridge, subscribeAtlasFog } from './atlasGeoFogBridge'
 import App from './App'
 import './atlasFogOverlay.css'
 
@@ -28,9 +27,27 @@ function AtlasFogProgress() {
 }
 
 export default function FoggedApp() {
+  const [isFogBridgeReady, setIsFogBridgeReady] = useState(false)
+
+  useEffect(() => {
+    let cancelled = false
+
+    installAtlasGeoFogBridge()
+      .catch((error: unknown) => console.error('[atlas-fog] bridge install failed', error))
+      .finally(() => {
+        if (!cancelled) {
+          setIsFogBridgeReady(true)
+        }
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
   return (
     <>
-      <App />
+      {isFogBridgeReady ? <App /> : null}
       <AtlasFogProgress />
     </>
   )
