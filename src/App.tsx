@@ -9,7 +9,7 @@ import type { GpsLocationSample } from './locationAdapter'
 type LocationMode = 'gps' | 'simulated'
 type AppTab = 'atlas' | 'memories' | 'stats' | 'privacy'
 type GpsNudgeDirection = 'north' | 'east' | 'south' | 'west'
-type MapViewActionType = 'snap' | 'detail'
+type MapViewActionType = 'default' | 'snap'
 
 type MapViewAction = {
   type: MapViewActionType
@@ -60,7 +60,6 @@ const worldMaskRing: [number, number][] = [
   [-180, -90],
   [-180, 90],
 ]
-const detailZoom = 16.25
 const gpsNudgeMeters = 10
 const metersPerLatitudeDegree = 111_320
 const appTabs: AppTabItem[] = [
@@ -173,6 +172,13 @@ function outsideCityMaskGeometry(boundary: BoundedAtlasPoint['boundary']) {
   return { type: 'Polygon' as const, coordinates: [worldMaskRing, ...boundaryRingsFromBoundary(boundary)] }
 }
 
+function cityBoundsFromAtlas(atlas: BoundedAtlasPoint): [[number, number], [number, number]] {
+  return [
+    [atlas.bounds.west, atlas.bounds.south],
+    [atlas.bounds.east, atlas.bounds.north],
+  ]
+}
+
 function getPointSource(map: import('maplibre-gl').Map) {
   return map.getSource('atlas-point-source') as UpdatableGeoJsonSource | undefined
 }
@@ -187,6 +193,20 @@ function centerMapOnPoint(map: import('maplibre-gl').Map, point: AtlasPoint, dur
     duration,
     essential: true,
     zoom: map.getZoom(),
+  })
+}
+
+function resetMapToCityDefault(map: import('maplibre-gl').Map, atlas: BoundedAtlasPoint, animate = true) {
+  map.fitBounds(cityBoundsFromAtlas(atlas), {
+    animate,
+    duration: animate ? 450 : 0,
+    padding: 0,
+  })
+  map.easeTo({
+    bearing: 0,
+    duration: animate ? 450 : 0,
+    essential: true,
+    pitch: 0,
   })
 }
 
@@ -228,16 +248,13 @@ function MapLibreCityMap({ atlas, mode, viewAction }: { atlas: BoundedAtlasPoint
         center: [initialAtlas.point.longitude, initialAtlas.point.latitude],
         zoom: 14,
         attributionControl: false,
-        dragRotate: false,
+        dragRotate: true,
         pitchWithRotate: false,
         scrollZoom: true,
         touchPitch: false,
         touchZoomRotate: true,
       })
       mapRef.current = map
-
-      map.dragRotate.disable()
-      map.touchZoomRotate.disableRotation()
 
       resizeObserver = new ResizeObserver(() => {
         map?.resize()
@@ -304,13 +321,8 @@ function MapLibreCityMap({ atlas, mode, viewAction }: { atlas: BoundedAtlasPoint
           paint: { 'text-color': '#ffffff', 'text-halo-blur': 0.5, 'text-halo-color': '#1d352b', 'text-halo-width': 1.25 },
         })
 
-        const cityBounds: [[number, number], [number, number]] = [
-          [initialAtlas.bounds.west, initialAtlas.bounds.south],
-          [initialAtlas.bounds.east, initialAtlas.bounds.north],
-        ]
-
-        map.fitBounds(cityBounds, { animate: false, padding: 0 })
-        map.setMaxBounds(cityBounds)
+        resetMapToCityDefault(map, initialAtlas, false)
+        map.setMaxBounds(cityBoundsFromAtlas(initialAtlas))
         map.setMinZoom(map.getZoom())
       })
     })()
@@ -342,13 +354,21 @@ function MapLibreCityMap({ atlas, mode, viewAction }: { atlas: BoundedAtlasPoint
     }
 
     handledViewActionNonce.current = viewAction.nonce
+
+    if (viewAction.type === 'default') {
+      resetMapToCityDefault(map, atlas)
+      return
+    }
+
     map.easeTo({
+      bearing: 0,
       center: [atlas.point.longitude, atlas.point.latitude],
       duration: 450,
       essential: true,
-      zoom: viewAction.type === 'detail' ? Math.max(map.getZoom(), detailZoom) : map.getZoom(),
+      pitch: 0,
+      zoom: map.getZoom(),
     })
-  }, [atlas.point.latitude, atlas.point.longitude, viewAction])
+  }, [atlas, viewAction])
 
   return <div ref={containerRef} className="atlas-map" />
 }
@@ -574,11 +594,15 @@ function App() {
         isCitySelectionOpen ? (
           <CitySelectionPanel atlas={activeAtlas} onUseCurrentCity={() => setIsCitySelectionOpen(false)} />
         ) : activeAtlas ? (
-          <div className="atlas-map-frame" style={mapFrameStyle}>
-            <MapLibreCityMap key={mapKey} atlas={activeAtlas} mode={mode} viewAction={mapViewAction} />
-            <div className="atlas-map-actions" role="group" aria-label="Map view controls">
-              <button type="button" onClick={() => requestMapViewAction('snap')}>Snap</button>
-              <button type="button" onClick={() => requestMapViewAction('detail')}>Zoom</button>
+          <>
+            <div className="atlas-map-frame" style={mapFrameStyle}>
+              <MapLibreCityMap key={mapKey} atlas={activeAtlas} mode={mode} viewAction={mapViewAction} />
+              <div className="atlas-map-action-top" role="group" aria-label="Map default zoom control">
+                <button className="atlas-map-action-button" type="button" onClick={() => requestMapViewAction('default')}>Zoom</button>
+              </div>
+              <div className="atlas-map-action-bottom" role="group" aria-label="Map snap control">
+                <button className="atlas-map-action-button" type="button" onClick={() => requestMapViewAction('snap')}>Snap</button>
+              </div>
             </div>
             <div className="atlas-joycon" role="group" aria-label="Move GPS location">
               <button className="atlas-joycon-button north" type="button" onClick={() => nudgeGpsLocation('north')} aria-label="Move GPS north">↑</button>
@@ -587,7 +611,7 @@ function App() {
               <button className="atlas-joycon-button east" type="button" onClick={() => nudgeGpsLocation('east')} aria-label="Move GPS east">→</button>
               <button className="atlas-joycon-button south" type="button" onClick={() => nudgeGpsLocation('south')} aria-label="Move GPS south">↓</button>
             </div>
-          </div>
+          </>
         ) : (
           <div className="atlas-empty-state" style={mapFrameStyle}>
             <span>{isLocating ? 'Stadtgrenze wird geladen...' : locationMessage}</span>
