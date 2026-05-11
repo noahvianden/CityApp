@@ -4,8 +4,6 @@ import { Crosshair, Route } from 'lucide-react'
 import { CircleMarker, MapContainer, TileLayer, Tooltip, useMap } from 'react-leaflet'
 import 'leaflet/dist/leaflet.css'
 import './App.css'
-import { cities } from './activeCities'
-import { createGeoBoundsAroundPoint, getCityGeoBounds } from './cityGeoBounds'
 import { containsGeoPoint, type GeoBounds } from './geoGrid'
 import { getNativeCurrentLocation, isNativeRuntime, requestNativeLocationPermission } from './nativeRuntime'
 import type { GpsLocationSample } from './locationAdapter'
@@ -19,6 +17,11 @@ type AtlasPoint = {
 }
 
 type AtlasFrameSize = {
+  width: number
+  height: number
+}
+
+type ViewportSize = {
   width: number
   height: number
 }
@@ -80,7 +83,6 @@ type CitySearchCandidate = BoundedAtlasPoint & {
   placeType: string | undefined
 }
 
-const fallbackCityId = 'hamburg'
 const fallbackPoint: AtlasPoint = {
   latitude: 53.5511,
   longitude: 9.9937,
@@ -97,6 +99,17 @@ const worldMaskRing: [number, number][] = [
   [90, -180],
 ]
 
+function getViewportSize(): ViewportSize {
+  if (typeof window === 'undefined') {
+    return { width: 320, height: 640 }
+  }
+
+  return {
+    width: Math.max(window.visualViewport?.width ?? window.innerWidth, 1),
+    height: Math.max(window.visualViewport?.height ?? window.innerHeight, 1),
+  }
+}
+
 function parseNominatimBounds(value: unknown): GeoBounds | null {
   if (!Array.isArray(value) || value.length < 4) {
     return null
@@ -109,21 +122,6 @@ function parseNominatimBounds(value: unknown): GeoBounds | null {
   }
 
   return { south, north, west, east }
-}
-
-function boundaryFromBounds(bounds: GeoBounds): BoundaryGeometry {
-  return {
-    type: 'Polygon',
-    coordinates: [
-      [
-        [bounds.west, bounds.south],
-        [bounds.east, bounds.south],
-        [bounds.east, bounds.north],
-        [bounds.west, bounds.north],
-        [bounds.west, bounds.south],
-      ],
-    ],
-  }
 }
 
 function parseBoundaryGeometry(value: unknown): BoundaryGeometry | null {
@@ -147,6 +145,35 @@ function parseBoundaryGeometry(value: unknown): BoundaryGeometry | null {
   return geometry as BoundaryGeometry
 }
 
+function getBoundsFromBoundary(boundary: BoundaryGeometry): GeoBounds | null {
+  const rings = boundary.type === 'Polygon' ? boundary.coordinates : boundary.coordinates.flat()
+  let north = -Infinity
+  let south = Infinity
+  let east = -Infinity
+  let west = Infinity
+
+  for (const ring of rings) {
+    for (const coordinate of ring) {
+      const [longitude, latitude] = coordinate
+
+      if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+        continue
+      }
+
+      north = Math.max(north, latitude)
+      south = Math.min(south, latitude)
+      east = Math.max(east, longitude)
+      west = Math.min(west, longitude)
+    }
+  }
+
+  if (![south, north, west, east].every(Number.isFinite) || south >= north || west >= east) {
+    return null
+  }
+
+  return { south, north, west, east }
+}
+
 function randomSearchToken() {
   return citySearchSyllables[Math.floor(Math.random() * citySearchSyllables.length)]
 }
@@ -162,26 +189,12 @@ function pointFromBounds(bounds: GeoBounds): AtlasPoint {
   }
 }
 
-function getFallbackCityBounds() {
-  return getCityGeoBounds(fallbackCityId) ?? createGeoBoundsAroundPoint(fallbackPoint)
-}
-
-function getFallbackCityAtlasPoint(): BoundedAtlasPoint {
-  const bounds = getFallbackCityBounds()
-
-  return {
-    point: containsGeoPoint(fallbackPoint, bounds) ? fallbackPoint : pointFromBounds(bounds),
-    bounds,
-    boundary: boundaryFromBounds(bounds),
-  }
-}
-
 function isBerlinName(value: string | undefined) {
   return /\bberlin\b/i.test(value ?? '')
 }
 
 function getAddressCityNames(address: CityLookupAddress | undefined) {
-  const names = [address?.city, address?.town, address?.village, address?.municipality, address?.county, address?.state]
+  const names = [address?.city, address?.town, address?.village, address?.municipality]
 
   return Array.from(new Set(names.filter((name): name is string => Boolean(name && !isBerlinName(name)))))
 }
@@ -198,8 +211,8 @@ function isBerlinPlace(candidate: CitySearchCandidate) {
 }
 
 function toCitySearchCandidate(place: NominatimPlace): CitySearchCandidate | null {
-  const bounds = parseNominatimBounds(place.boundingbox)
   const boundary = parseBoundaryGeometry(place.geojson)
+  const bounds = boundary ? getBoundsFromBoundary(boundary) ?? parseNominatimBounds(place.boundingbox) : null
   const latitude = Number(place.lat)
   const longitude = Number(place.lon)
 
@@ -322,7 +335,7 @@ async function fetchCityBoundary(point: AtlasPoint): Promise<BoundedAtlasPoint |
   return null
 }
 
-async function getSimulatedCityPoint(): Promise<BoundedAtlasPoint> {
+async function getSimulatedCityPoint(): Promise<BoundedAtlasPoint | null> {
   for (let attempt = 0; attempt < 4; attempt += 1) {
     const cityPoint = await fetchRandomCitySearchResult()
 
@@ -331,7 +344,7 @@ async function getSimulatedCityPoint(): Promise<BoundedAtlasPoint> {
     }
   }
 
-  for (let attempt = 0; attempt < 4; attempt += 1) {
+  for (let attempt = 0; attempt < fallbackGermanCityQueries.length; attempt += 1) {
     const cityPoint = await fetchCitySearchResult(randomFallbackCityQuery())
 
     if (cityPoint) {
@@ -339,23 +352,7 @@ async function getSimulatedCityPoint(): Promise<BoundedAtlasPoint> {
     }
   }
 
-  return getFallbackCityAtlasPoint()
-}
-
-function getAuthoredBoundaryForPoint(point: AtlasPoint): BoundedAtlasPoint | null {
-  for (const city of cities) {
-    const bounds = getCityGeoBounds(city.id)
-
-    if (bounds && containsGeoPoint(point, bounds)) {
-      return {
-        point,
-        bounds,
-        boundary: boundaryFromBounds(bounds),
-      }
-    }
-  }
-
-  return null
+  return fetchCitySearchResult('Hamburg')
 }
 
 function toBrowserGpsSample(position: GeolocationPosition): GpsLocationSample {
@@ -413,22 +410,20 @@ function getGeoBoundsAspectRatio(bounds: GeoBounds) {
   return Math.min(Math.max(width / height, 0.25), 4)
 }
 
-function getAtlasFrameSize(bounds: GeoBounds): AtlasFrameSize {
-  const viewportWidth = typeof window === 'undefined' ? 320 : Math.max(window.innerWidth, 1)
-  const viewportHeight = typeof window === 'undefined' ? 640 : Math.max(window.innerHeight, 1)
+function getAtlasFrameSize(bounds: GeoBounds, viewportSize: ViewportSize): AtlasFrameSize {
   const boundsAspectRatio = getGeoBoundsAspectRatio(bounds)
-  const viewportAspectRatio = viewportWidth / viewportHeight
+  const viewportAspectRatio = viewportSize.width / viewportSize.height
 
   if (viewportAspectRatio > boundsAspectRatio) {
     return {
-      width: viewportHeight * boundsAspectRatio,
-      height: viewportHeight,
+      width: viewportSize.height * boundsAspectRatio,
+      height: viewportSize.height,
     }
   }
 
   return {
-    width: viewportWidth,
-    height: viewportWidth / boundsAspectRatio,
+    width: viewportSize.width,
+    height: viewportSize.width / boundsAspectRatio,
   }
 }
 
@@ -513,35 +508,37 @@ function BoundaryMaskLayer({ boundary }: { boundary: BoundaryGeometry }) {
 }
 
 function App() {
-  const initialPoint = useMemo(() => fallbackPoint, [])
-  const initialBounds = useMemo(() => getFallbackCityBounds(), [])
-  const initialBoundary = useMemo(() => boundaryFromBounds(initialBounds), [initialBounds])
   const [mode, setMode] = useState<LocationMode>('simulated')
-  const [activePoint, setActivePoint] = useState<AtlasPoint>(initialPoint)
-  const [activeBounds, setActiveBounds] = useState<GeoBounds>(initialBounds)
-  const [activeBoundary, setActiveBoundary] = useState<BoundaryGeometry>(initialBoundary)
-  const [mapFrameSize, setMapFrameSize] = useState<AtlasFrameSize>(() => getAtlasFrameSize(initialBounds))
+  const [activeAtlas, setActiveAtlas] = useState<BoundedAtlasPoint | null>(null)
+  const [viewportSize, setViewportSize] = useState<ViewportSize>(() => getViewportSize())
   const [isLocating, setIsLocating] = useState(false)
+  const [locationMessage, setLocationMessage] = useState('Stadtgrenze wird geladen…')
   const bootedSimulatedLocation = useRef(false)
+  const mapFrameSize = useMemo(() => (
+    activeAtlas ? getAtlasFrameSize(activeAtlas.bounds, viewportSize) : null
+  ), [activeAtlas, viewportSize])
   const mapFrameStyle = useMemo<CSSProperties>(() => ({
-    width: `${mapFrameSize.width}px`,
-    height: `${mapFrameSize.height}px`,
-  }), [mapFrameSize.height, mapFrameSize.width])
+    width: mapFrameSize ? `${mapFrameSize.width}px` : '100vw',
+    height: mapFrameSize ? `${mapFrameSize.height}px` : '100svh',
+  }), [mapFrameSize])
+  const mapKey = activeAtlas
+    ? `${activeAtlas.bounds.south}:${activeAtlas.bounds.west}:${activeAtlas.bounds.north}:${activeAtlas.bounds.east}`
+    : 'empty-atlas'
 
   useEffect(() => {
-    const updateMapFrameSize = () => {
-      setMapFrameSize(getAtlasFrameSize(activeBounds))
+    const updateViewportSize = () => {
+      setViewportSize(getViewportSize())
     }
 
-    updateMapFrameSize()
-    window.addEventListener('resize', updateMapFrameSize)
-    window.visualViewport?.addEventListener('resize', updateMapFrameSize)
+    updateViewportSize()
+    window.addEventListener('resize', updateViewportSize)
+    window.visualViewport?.addEventListener('resize', updateViewportSize)
 
     return () => {
-      window.removeEventListener('resize', updateMapFrameSize)
-      window.visualViewport?.removeEventListener('resize', updateMapFrameSize)
+      window.removeEventListener('resize', updateViewportSize)
+      window.visualViewport?.removeEventListener('resize', updateViewportSize)
     }
-  }, [activeBounds])
+  }, [])
 
   useEffect(() => {
     if (bootedSimulatedLocation.current) {
@@ -555,13 +552,16 @@ function App() {
   async function activateSimulatedLocation() {
     setMode('simulated')
     setIsLocating(true)
+    setLocationMessage('Stadtgrenze wird geladen…')
 
     try {
       const simulated = await getSimulatedCityPoint()
 
-      setActivePoint(simulated.point)
-      setActiveBounds(simulated.bounds)
-      setActiveBoundary(simulated.boundary)
+      if (simulated) {
+        setActiveAtlas(simulated)
+      } else {
+        setLocationMessage('Keine Stadtgrenze gefunden. Bitte erneut versuchen.')
+      }
     } finally {
       setIsLocating(false)
     }
@@ -570,6 +570,7 @@ function App() {
   async function useGpsLocation() {
     setMode('gps')
     setIsLocating(true)
+    setLocationMessage('GPS-Stadtgrenze wird geladen…')
 
     try {
       const sample = await getCurrentLocation()
@@ -580,15 +581,15 @@ function App() {
           longitude: sample.longitude,
           accuracyM: sample.accuracyM,
         }
-        const nextBoundary = await fetchCityBoundary(nextPoint) ?? getAuthoredBoundaryForPoint(nextPoint)
+        const nextBoundary = await fetchCityBoundary(nextPoint)
 
         if (nextBoundary) {
-          setActivePoint(nextBoundary.point)
-          setActiveBounds(nextBoundary.bounds)
-          setActiveBoundary(nextBoundary.boundary)
+          setActiveAtlas(nextBoundary)
         } else {
-          setActivePoint(nextPoint)
+          setLocationMessage('Für diesen GPS-Punkt wurde keine Stadtgrenze gefunden.')
         }
+      } else {
+        setLocationMessage('GPS konnte nicht gelesen werden.')
       }
     } finally {
       setIsLocating(false)
@@ -597,40 +598,47 @@ function App() {
 
   return (
     <main className="atlas-core">
-      <div className="atlas-map-frame" style={mapFrameStyle}>
-        <MapContainer
-          center={[initialPoint.latitude, initialPoint.longitude]}
-          zoom={14}
-          zoomSnap={0.1}
-          scrollWheelZoom
-          maxBoundsViscosity={1}
-          zoomControl={false}
-          className="atlas-map"
-        >
-          <TileLayer
-            attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>'
-            url="https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png"
-          />
-          <LockAtlasBounds bounds={activeBounds} />
-          <BoundaryMaskLayer boundary={activeBoundary} />
-          {activePoint.accuracyM ? (
-            <CircleMarker
-              center={[activePoint.latitude, activePoint.longitude]}
-              radius={Math.min(Math.max(activePoint.accuracyM / 3, 14), 42)}
-              pathOptions={{ color: '#2f7d57', fillColor: '#2f7d57', fillOpacity: 0.12, weight: 1 }}
-            />
-          ) : null}
-          <CircleMarker
-            center={[activePoint.latitude, activePoint.longitude]}
-            radius={9}
-            pathOptions={{ color: '#ffffff', fillColor: mode === 'gps' ? '#2f7d57' : '#d78b35', fillOpacity: 1, weight: 3 }}
+      {activeAtlas ? (
+        <div className="atlas-map-frame" style={mapFrameStyle}>
+          <MapContainer
+            key={mapKey}
+            center={[activeAtlas.point.latitude, activeAtlas.point.longitude]}
+            zoom={14}
+            zoomSnap={0.1}
+            scrollWheelZoom
+            maxBoundsViscosity={1}
+            zoomControl={false}
+            className="atlas-map"
           >
-            <Tooltip direction="top" offset={[0, -8]} opacity={0.95}>
-              {mode === 'gps' ? 'GPS' : 'Simulated'}
-            </Tooltip>
-          </CircleMarker>
-        </MapContainer>
-      </div>
+            <TileLayer
+              attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>'
+              url="https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png"
+            />
+            <LockAtlasBounds bounds={activeAtlas.bounds} />
+            <BoundaryMaskLayer boundary={activeAtlas.boundary} />
+            {activeAtlas.point.accuracyM ? (
+              <CircleMarker
+                center={[activeAtlas.point.latitude, activeAtlas.point.longitude]}
+                radius={Math.min(Math.max(activeAtlas.point.accuracyM / 3, 14), 42)}
+                pathOptions={{ color: '#2f7d57', fillColor: '#2f7d57', fillOpacity: 0.12, weight: 1 }}
+              />
+            ) : null}
+            <CircleMarker
+              center={[activeAtlas.point.latitude, activeAtlas.point.longitude]}
+              radius={9}
+              pathOptions={{ color: '#ffffff', fillColor: mode === 'gps' ? '#2f7d57' : '#d78b35', fillOpacity: 1, weight: 3 }}
+            >
+              <Tooltip direction="top" offset={[0, -8]} opacity={0.95}>
+                {mode === 'gps' ? 'GPS' : 'Simulated'}
+              </Tooltip>
+            </CircleMarker>
+          </MapContainer>
+        </div>
+      ) : (
+        <div className="atlas-empty-state" style={mapFrameStyle}>
+          <span>{isLocating ? 'Stadtgrenze wird geladen…' : locationMessage}</span>
+        </div>
+      )}
 
       <div className="atlas-controls" role="group" aria-label="Atlas location controls">
         <button
