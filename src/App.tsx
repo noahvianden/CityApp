@@ -58,6 +58,23 @@ type CityHistoryItem = {
   mode: LocationMode
 }
 
+type NominatimSearchPlace = {
+  address?: {
+    city?: string
+    country?: string
+    municipality?: string
+    town?: string
+    village?: string
+  }
+  boundingbox?: unknown
+  geojson?: unknown
+  lat?: string
+  lon?: string
+  name?: string
+  osm_id?: number
+  osm_type?: string
+}
+
 const cityStyleUrl = `${import.meta.env.BASE_URL}city-style.json`
 const worldMaskRing: [number, number][] = [
   [-180, 90],
@@ -179,6 +196,117 @@ function outsideCityMaskGeometry(boundary: BoundedAtlasPoint['boundary']) {
   return { type: 'Polygon' as const, coordinates: [worldMaskRing, ...boundaryRingsFromBoundary(boundary)] }
 }
 
+function parseSearchBounds(value: unknown) {
+  if (!Array.isArray(value) || value.length < 4) {
+    return null
+  }
+
+  const [south, north, west, east] = value.map((entry) => Number(entry))
+
+  if (![south, north, west, east].every(Number.isFinite) || south >= north || west >= east) {
+    return null
+  }
+
+  return { south, north, west, east }
+}
+
+function parseSearchBoundary(value: unknown): BoundedAtlasPoint['boundary'] | null {
+  if (!value || typeof value !== 'object') {
+    return null
+  }
+
+  const geometry = value as { type?: unknown, coordinates?: unknown }
+  if ((geometry.type !== 'Polygon' && geometry.type !== 'MultiPolygon') || !Array.isArray(geometry.coordinates)) {
+    return null
+  }
+
+  return geometry as BoundedAtlasPoint['boundary']
+}
+
+function getBoundsFromSearchBoundary(boundary: BoundedAtlasPoint['boundary']) {
+  const rings = boundary.type === 'Polygon' ? boundary.coordinates : boundary.coordinates.flat()
+  let north = -Infinity
+  let south = Infinity
+  let east = -Infinity
+  let west = Infinity
+
+  for (const ring of rings) {
+    for (const coordinate of ring) {
+      const [longitude, latitude] = coordinate
+
+      if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+        continue
+      }
+
+      north = Math.max(north, latitude)
+      south = Math.min(south, latitude)
+      east = Math.max(east, longitude)
+      west = Math.min(west, longitude)
+    }
+  }
+
+  if (![south, north, west, east].every(Number.isFinite) || south >= north || west >= east) {
+    return null
+  }
+
+  return { south, north, west, east }
+}
+
+async function searchCityBoundary(query: string): Promise<BoundedAtlasPoint | null> {
+  const trimmedQuery = query.trim()
+  if (!trimmedQuery) {
+    return null
+  }
+
+  const params = new URLSearchParams({
+    format: 'jsonv2',
+    q: trimmedQuery,
+    featureType: 'city',
+    limit: '20',
+    addressdetails: '1',
+    extratags: '1',
+    polygon_geojson: '1',
+    'accept-language': 'en',
+  })
+
+  const response = await fetch(`https://nominatim.openstreetmap.org/search?${params.toString()}`, {
+    headers: { Accept: 'application/json' },
+    credentials: 'omit',
+  })
+
+  if (!response.ok) {
+    return null
+  }
+
+  const payload = await response.json()
+  if (!Array.isArray(payload)) {
+    return null
+  }
+
+  for (const place of payload as NominatimSearchPlace[]) {
+    const boundary = parseSearchBoundary(place.geojson)
+    const bounds = boundary ? getBoundsFromSearchBoundary(boundary) ?? parseSearchBounds(place.boundingbox) : null
+    const latitude = Number(place.lat)
+    const longitude = Number(place.lon)
+
+    if (!boundary || !bounds || !Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+      continue
+    }
+
+    return {
+      cityId: `${place.osm_type ?? 'unknown'}:${place.osm_id ?? place.name ?? trimmedQuery}`,
+      cityName: place.name ?? place.address?.city ?? place.address?.town ?? place.address?.village ?? trimmedQuery,
+      cityCountry: place.address?.country ?? 'Unknown country',
+      cityStatus: 'Searched boundary',
+      point: { latitude, longitude },
+      bounds,
+      boundary,
+    }
+  }
+
+  return null
+}
+
 function cityBoundsFromAtlas(atlas: BoundedAtlasPoint): [[number, number], [number, number]] {
   return [
     [atlas.bounds.west, atlas.bounds.south],
@@ -203,23 +331,47 @@ function centerMapOnPoint(map: import('maplibre-gl').Map, point: AtlasPoint, dur
   })
 }
 
-function fitMapToCityDefault(map: import('maplibre-gl').Map, atlas: BoundedAtlasPoint): MapCamera {
-  map.fitBounds(cityBoundsFromAtlas(atlas), {
-    animate: false,
-    padding: 0,
-  })
-  const center = map.getCenter()
+function getCityDefaultCamera(map: import('maplibre-gl').Map, atlas: BoundedAtlasPoint): MapCamera {
+  map.setMinZoom(0)
+  const camera = map.cameraForBounds(cityBoundsFromAtlas(atlas), { padding: 0 })
+  const fallbackCenter = map.getCenter()
+
+  if (!camera?.center || typeof camera.zoom !== 'number') {
+    return {
+      center: [fallbackCenter.lng, fallbackCenter.lat],
+      zoom: map.getZoom(),
+    }
+  }
+
+  const centerValue = camera.center as { lng?: number, lat?: number } | [number, number]
+  const center = Array.isArray(centerValue)
+    ? centerValue
+    : [Number(centerValue.lng), Number(centerValue.lat)] as [number, number]
 
   return {
-    center: [center.lng, center.lat],
-    zoom: map.getZoom(),
+    center,
+    zoom: camera.zoom,
   }
+}
+
+function setMapToCityDefault(map: import('maplibre-gl').Map, atlas: BoundedAtlasPoint, animate: boolean) {
+  const camera = getCityDefaultCamera(map, atlas)
+  map.setMinZoom(camera.zoom)
+  map.easeTo({
+    bearing: 0,
+    center: camera.center,
+    duration: animate ? 450 : 0,
+    essential: true,
+    pitch: 0,
+    zoom: camera.zoom,
+  })
+
+  return camera
 }
 
 function MapLibreCityMap({ atlas, mode, viewAction }: { atlas: BoundedAtlasPoint, mode: LocationMode, viewAction: MapViewAction | null }) {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const mapRef = useRef<import('maplibre-gl').Map | null>(null)
-  const defaultCameraRef = useRef<MapCamera | null>(null)
   const latestAtlasRef = useRef(atlas)
   const latestModeRef = useRef(mode)
   const handledViewActionNonce = useRef<number | null>(null)
@@ -328,18 +480,14 @@ function MapLibreCityMap({ atlas, mode, viewAction }: { atlas: BoundedAtlasPoint
           paint: { 'text-color': '#ffffff', 'text-halo-blur': 0.5, 'text-halo-color': '#1d352b', 'text-halo-width': 1.25 },
         })
 
-        defaultCameraRef.current = fitMapToCityDefault(map, initialAtlas)
-        map.setBearing(0)
-        map.setPitch(0)
+        setMapToCityDefault(map, initialAtlas, false)
         map.setMaxBounds(cityBoundsFromAtlas(initialAtlas))
-        map.setMinZoom(map.getZoom())
       })
     })()
 
     return () => {
       cancelled = true
       resizeObserver?.disconnect()
-      defaultCameraRef.current = null
       mapRef.current = null
       map?.remove()
     }
@@ -366,19 +514,11 @@ function MapLibreCityMap({ atlas, mode, viewAction }: { atlas: BoundedAtlasPoint
     handledViewActionNonce.current = viewAction.nonce
 
     if (viewAction.type === 'default') {
-      const camera = defaultCameraRef.current ?? fitMapToCityDefault(map, atlas)
-
-      map.easeTo({
-        bearing: 0,
-        center: camera.center,
-        duration: 450,
-        essential: true,
-        pitch: 0,
-        zoom: camera.zoom,
-      })
+      setMapToCityDefault(map, atlas, true)
       return
     }
 
+    map.setMinZoom(0)
     map.easeTo({
       bearing: 0,
       center: [atlas.point.longitude, atlas.point.latitude],
@@ -406,7 +546,19 @@ function DummyPanel({ tab }: { tab: AppTabItem }) {
   )
 }
 
-function CitySelectionPanel({ history, onSelectCity, onUseCurrentCity }: { history: CityHistoryItem[], onSelectCity: (city: CityHistoryItem) => void, onUseCurrentCity: () => void }) {
+function CitySelectionPanel({
+  history,
+  isSearching,
+  onSearchSubmit,
+  onSelectCity,
+  searchMessage,
+}: {
+  history: CityHistoryItem[]
+  isSearching: boolean
+  onSearchSubmit: (query: string) => void
+  onSelectCity: (city: CityHistoryItem) => void
+  searchMessage: string
+}) {
   const [isSearchActive, setIsSearchActive] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const searchInputRef = useRef<HTMLInputElement | null>(null)
@@ -417,6 +569,17 @@ function CitySelectionPanel({ history, onSelectCity, onUseCurrentCity }: { histo
     }
   }, [isSearchActive])
 
+  function submitSearch(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    const trimmedQuery = searchQuery.trim()
+
+    if (trimmedQuery) {
+      onSearchSubmit(trimmedQuery)
+    } else {
+      setIsSearchActive(true)
+    }
+  }
+
   return (
     <section className="atlas-city-selection-panel" aria-label="City selection">
       <div className="atlas-city-selection-heading">
@@ -424,7 +587,7 @@ function CitySelectionPanel({ history, onSelectCity, onUseCurrentCity }: { histo
         <p>Major cities first. Any place can become a generated atlas later.</p>
       </div>
 
-      <form className="atlas-city-search" role="search" onSubmit={(event) => event.preventDefault()} onClick={() => setIsSearchActive(true)}>
+      <form className="atlas-city-search" role="search" onSubmit={submitSearch} onClick={() => setIsSearchActive(true)}>
         {isSearchActive ? (
           <input
             ref={searchInputRef}
@@ -432,12 +595,15 @@ function CitySelectionPanel({ history, onSelectCity, onUseCurrentCity }: { histo
             onChange={(event) => setSearchQuery(event.target.value)}
             placeholder="Search cities or districts"
             aria-label="Search cities or districts"
+            disabled={isSearching}
           />
         ) : (
           <span>Search cities or districts</span>
         )}
-        <button type="submit" onClick={() => setIsSearchActive(true)}>Search</button>
+        <button type="submit" disabled={isSearching}>{isSearching ? 'Searching' : 'Search'}</button>
       </form>
+
+      {searchMessage ? <p className="atlas-city-search-message">{searchMessage}</p> : null}
 
       <div className="atlas-city-list" aria-label="City history">
         {history.length ? history.map((city) => (
@@ -452,14 +618,9 @@ function CitySelectionPanel({ history, onSelectCity, onUseCurrentCity }: { histo
         )) : (
           <div className="atlas-city-empty-history">
             <strong>No city history yet</strong>
-            <span>Use GPS or Simulated to add a city here. Search results will appear here later.</span>
+            <span>Use GPS, Simulated, or Search to add a city here.</span>
           </div>
         )}
-      </div>
-
-      <div className="atlas-nearby-section">
-        <strong>Nearby suggestions</strong>
-        <button type="button" onClick={onUseCurrentCity}>Use current city</button>
       </div>
     </section>
   )
@@ -474,7 +635,9 @@ function App() {
   const [isMapFullscreen, setIsMapFullscreen] = useState(false)
   const [viewportSize, setViewportSize] = useState<ViewportSize>(() => getViewportSize())
   const [isLocating, setIsLocating] = useState(false)
+  const [isSearchingCity, setIsSearchingCity] = useState(false)
   const [locationMessage, setLocationMessage] = useState('Stadtgrenze wird geladen...')
+  const [citySearchMessage, setCitySearchMessage] = useState('')
   const [mapViewAction, setMapViewAction] = useState<MapViewAction | null>(null)
   const bootedSimulatedLocation = useRef(false)
   const mapFrameSize = useMemo(() => (activeAtlas ? getAtlasFrameSize(viewportSize) : null), [activeAtlas, viewportSize])
@@ -519,7 +682,7 @@ function App() {
       const nextCity = {
         cityId: atlas.cityId,
         name: atlas.cityName,
-        description: `${atlas.cityStatus} · generated city atlas`,
+        description: `${atlas.cityStatus} · ${atlas.cityCountry}`,
         badge,
         atlas,
         mode: nextMode,
@@ -572,6 +735,29 @@ function App() {
       }
     } finally {
       setIsLocating(false)
+    }
+  }
+
+  async function searchForCity(query: string) {
+    setIsSearchingCity(true)
+    setCitySearchMessage('Searching...')
+
+    try {
+      const searchedCity = await searchCityBoundary(query)
+
+      if (searchedCity) {
+        setMode('simulated')
+        setActiveAtlas(searchedCity)
+        rememberAtlasCity(searchedCity, 'searched', 'simulated')
+        setCitySearchMessage('')
+        setIsCitySelectionOpen(false)
+      } else {
+        setCitySearchMessage('No city boundary found. Try a larger city name.')
+      }
+    } catch {
+      setCitySearchMessage('Search failed. Please try again.')
+    } finally {
+      setIsSearchingCity(false)
     }
   }
 
@@ -649,8 +835,10 @@ function App() {
         isCitySelectionOpen ? (
           <CitySelectionPanel
             history={cityHistory}
+            isSearching={isSearchingCity}
+            onSearchSubmit={searchForCity}
             onSelectCity={openHistoryCity}
-            onUseCurrentCity={() => setIsCitySelectionOpen(false)}
+            searchMessage={citySearchMessage}
           />
         ) : activeAtlas ? (
           <>
