@@ -7,7 +7,8 @@
   overflow: hidden;
 }
 
-.atlas-map-frame {
+.atlas-map-frame,
+.atlas-empty-state {
   position: absolute;
   top: 0;
   left: 50%;
@@ -16,6 +17,15 @@
   transform: translateX(-50%);
   overflow: hidden;
   background: #d8e3da;
+}
+
+.atlas-empty-state {
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  color: #1d352b;
+  font-weight: 800;
+  text-align: center;
 }
 
 .atlas-map {
