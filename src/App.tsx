@@ -4,7 +4,7 @@ import { Crosshair, Route } from 'lucide-react'
 import { CircleMarker, MapContainer, TileLayer, Tooltip, useMap } from 'react-leaflet'
 import 'leaflet/dist/leaflet.css'
 import './App.css'
-import { cities } from './cityprintData'
+import { cities } from './activeCities'
 import { createGeoBoundsAroundPoint, getCityGeoBounds } from './cityGeoBounds'
 import { containsGeoPoint, type GeoBounds } from './geoGrid'
 import { getNativeCurrentLocation, isNativeRuntime, requestNativeLocationPermission } from './nativeRuntime'
@@ -55,7 +55,7 @@ const fallbackPoint: AtlasPoint = {
 }
 
 const citySearchSyllables = ['berg', 'burg', 'dorf', 'furt', 'hausen', 'heim', 'stadt', 'bach', 'feld', 'hagen', 'kirchen', 'weiler']
-const fallbackGermanCityQueries = ['Berlin', 'Hamburg', 'Muenchen', 'Koeln', 'Frankfurt am Main', 'Dresden', 'Leipzig', 'Hannover']
+const fallbackGermanCityQueries = ['Hamburg', 'Muenchen', 'Koeln', 'Frankfurt am Main', 'Dresden', 'Leipzig', 'Hannover']
 const nominatimBaseUrl = import.meta.env.DEV ? '/nominatim' : 'https://nominatim.openstreetmap.org'
 const worldMaskRing: [number, number][] = [
   [90, -180],
