@@ -9,6 +9,12 @@ import type { GpsLocationSample } from './locationAdapter'
 type LocationMode = 'gps' | 'simulated'
 type AppTab = 'atlas' | 'memories' | 'stats' | 'privacy'
 type GpsNudgeDirection = 'north' | 'east' | 'south' | 'west'
+type MapViewActionType = 'snap' | 'detail'
+
+type MapViewAction = {
+  type: MapViewActionType
+  nonce: number
+}
 
 type AppTabItem = {
   key: AppTab
@@ -42,35 +48,12 @@ const worldMaskRing: [number, number][] = [
   [-180, -90],
   [-180, 90],
 ]
+const detailZoom = 16.25
 const appTabs: AppTabItem[] = [
-  {
-    key: 'atlas',
-    icon: 'A',
-    label: 'Atlas',
-    dummyTitle: 'Atlas',
-    dummyBody: 'Explore the current city boundary.',
-  },
-  {
-    key: 'memories',
-    icon: 'M',
-    label: 'Memories',
-    dummyTitle: 'Memories coming soon',
-    dummyBody: 'This placeholder will show visited places, saved moments, and city notes.',
-  },
-  {
-    key: 'stats',
-    icon: 'S',
-    label: 'Stats',
-    dummyTitle: 'Stats coming soon',
-    dummyBody: 'This placeholder will show discovery progress, visited areas, and atlas activity.',
-  },
-  {
-    key: 'privacy',
-    icon: 'P',
-    label: 'Privacy',
-    dummyTitle: 'Privacy coming soon',
-    dummyBody: 'This placeholder will show location controls, data choices, and privacy settings.',
-  },
+  { key: 'atlas', icon: 'A', label: 'Atlas', dummyTitle: 'Atlas', dummyBody: 'Explore the current city boundary.' },
+  { key: 'memories', icon: 'M', label: 'Memories', dummyTitle: 'Memories coming soon', dummyBody: 'This placeholder will show visited places, saved moments, and city notes.' },
+  { key: 'stats', icon: 'S', label: 'Stats', dummyTitle: 'Stats coming soon', dummyBody: 'This placeholder will show discovery progress, visited areas, and atlas activity.' },
+  { key: 'privacy', icon: 'P', label: 'Privacy', dummyTitle: 'Privacy coming soon', dummyBody: 'This placeholder will show location controls, data choices, and privacy settings.' },
 ]
 
 function getAppTab(tab: AppTab) {
@@ -111,11 +94,7 @@ async function getBrowserCurrentLocation() {
     navigator.geolocation.getCurrentPosition(
       (position) => resolve(toBrowserGpsSample(position)),
       () => resolve(null),
-      {
-        enableHighAccuracy: true,
-        maximumAge: 0,
-        timeout: 10000,
-      },
+      { enableHighAccuracy: true, maximumAge: 0, timeout: 10000 },
     )
   })
 }
@@ -137,10 +116,7 @@ async function getCurrentLocation() {
 function getAtlasFrameSize(viewportSize: ViewportSize): AtlasFrameSize {
   const side = Math.max(Math.min(viewportSize.width, viewportSize.height), 1)
 
-  return {
-    width: side,
-    height: side,
-  }
+  return { width: side, height: side }
 }
 
 type MapLibrePointProperties = {
@@ -151,10 +127,7 @@ type MapLibrePointProperties = {
 
 type MapLibrePointFeature = {
   type: 'Feature'
-  geometry: {
-    type: 'Point'
-    coordinates: [number, number]
-  }
+  geometry: { type: 'Point', coordinates: [number, number] }
   properties: MapLibrePointProperties
 }
 
@@ -169,10 +142,7 @@ function getAccuracyRadius(accuracyM: number | undefined) {
 function pointToFeature(point: AtlasPoint, mode: LocationMode): MapLibrePointFeature {
   return {
     type: 'Feature',
-    geometry: {
-      type: 'Point',
-      coordinates: [point.longitude, point.latitude],
-    },
+    geometry: { type: 'Point', coordinates: [point.longitude, point.latitude] },
     properties: {
       accuracyRadius: getAccuracyRadius(point.accuracyM),
       label: mode === 'gps' ? 'GPS' : 'Simulated',
@@ -186,14 +156,12 @@ function boundaryRingsFromBoundary(boundary: BoundedAtlasPoint['boundary']) {
 }
 
 function outsideCityMaskGeometry(boundary: BoundedAtlasPoint['boundary']) {
-  return {
-    type: 'Polygon' as const,
-    coordinates: [worldMaskRing, ...boundaryRingsFromBoundary(boundary)],
-  }
+  return { type: 'Polygon' as const, coordinates: [worldMaskRing, ...boundaryRingsFromBoundary(boundary)] }
 }
 
-function MapLibreCityMap({ atlas, mode }: { atlas: BoundedAtlasPoint, mode: LocationMode }) {
+function MapLibreCityMap({ atlas, mode, viewAction }: { atlas: BoundedAtlasPoint, mode: LocationMode, viewAction: MapViewAction | null }) {
   const containerRef = useRef<HTMLDivElement | null>(null)
+  const mapRef = useRef<import('maplibre-gl').Map | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -224,6 +192,7 @@ function MapLibreCityMap({ atlas, mode }: { atlas: BoundedAtlasPoint, mode: Loca
         touchPitch: false,
         touchZoomRotate: true,
       })
+      mapRef.current = map
 
       map.dragRotate.disable()
       map.touchZoomRotate.disableRotation()
@@ -231,7 +200,6 @@ function MapLibreCityMap({ atlas, mode }: { atlas: BoundedAtlasPoint, mode: Loca
       resizeObserver = new ResizeObserver(() => {
         map?.resize()
       })
-
       resizeObserver.observe(containerRef.current)
 
       map.on('load', () => {
@@ -243,48 +211,26 @@ function MapLibreCityMap({ atlas, mode }: { atlas: BoundedAtlasPoint, mode: Loca
 
         map.addSource('atlas-boundary-source', {
           type: 'geojson',
-          data: {
-            type: 'Feature',
-            geometry: atlas.boundary,
-            properties: {},
-          },
+          data: { type: 'Feature', geometry: atlas.boundary, properties: {} },
         })
-
         map.addSource('atlas-outside-mask-source', {
           type: 'geojson',
-          data: {
-            type: 'Feature',
-            geometry: outsideCityMaskGeometry(atlas.boundary),
-            properties: {},
-          },
+          data: { type: 'Feature', geometry: outsideCityMaskGeometry(atlas.boundary), properties: {} },
         })
-
-        map.addSource('atlas-point-source', {
-          type: 'geojson',
-          data: pointFeature,
-        })
+        map.addSource('atlas-point-source', { type: 'geojson', data: pointFeature })
 
         map.addLayer({
           id: 'atlas-outside-city-mask',
           type: 'fill',
           source: 'atlas-outside-mask-source',
-          paint: {
-            'fill-color': '#f7efe0',
-            'fill-opacity': 0.88,
-          },
+          paint: { 'fill-color': '#536b66', 'fill-opacity': 0.82 },
         })
-
         map.addLayer({
           id: 'atlas-outline',
           type: 'line',
           source: 'atlas-boundary-source',
-          paint: {
-            'line-color': '#1d352b',
-            'line-opacity': 0.72,
-            'line-width': 2,
-          },
+          paint: { 'line-color': '#1d352b', 'line-opacity': 0.72, 'line-width': 2 },
         })
-
         map.addLayer({
           id: 'atlas-accuracy-circle',
           type: 'circle',
@@ -297,19 +243,12 @@ function MapLibreCityMap({ atlas, mode }: { atlas: BoundedAtlasPoint, mode: Loca
             'circle-stroke-width': 1,
           },
         })
-
         map.addLayer({
           id: 'atlas-point-circle',
           type: 'circle',
           source: 'atlas-point-source',
-          paint: {
-            'circle-color': ['get', 'pointColor'],
-            'circle-radius': 9,
-            'circle-stroke-color': '#ffffff',
-            'circle-stroke-width': 3,
-          },
+          paint: { 'circle-color': ['get', 'pointColor'], 'circle-radius': 9, 'circle-stroke-color': '#ffffff', 'circle-stroke-width': 3 },
         })
-
         map.addLayer({
           id: 'atlas-point-label',
           type: 'symbol',
@@ -322,12 +261,7 @@ function MapLibreCityMap({ atlas, mode }: { atlas: BoundedAtlasPoint, mode: Loca
             'text-offset': [0, -1.35],
             'text-size': 12,
           },
-          paint: {
-            'text-color': '#ffffff',
-            'text-halo-blur': 0.5,
-            'text-halo-color': '#1d352b',
-            'text-halo-width': 1.25,
-          },
+          paint: { 'text-color': '#ffffff', 'text-halo-blur': 0.5, 'text-halo-color': '#1d352b', 'text-halo-width': 1.25 },
         })
 
         const cityBounds: [[number, number], [number, number]] = [
@@ -335,10 +269,7 @@ function MapLibreCityMap({ atlas, mode }: { atlas: BoundedAtlasPoint, mode: Loca
           [atlas.bounds.east, atlas.bounds.north],
         ]
 
-        map.fitBounds(cityBounds, {
-          animate: false,
-          padding: 0,
-        })
+        map.fitBounds(cityBounds, { animate: false, padding: 0 })
         map.setMaxBounds(cityBounds)
         map.setMinZoom(map.getZoom())
       })
@@ -347,9 +278,25 @@ function MapLibreCityMap({ atlas, mode }: { atlas: BoundedAtlasPoint, mode: Loca
     return () => {
       cancelled = true
       resizeObserver?.disconnect()
+      mapRef.current = null
       map?.remove()
     }
   }, [atlas, mode])
+
+  useEffect(() => {
+    const map = mapRef.current
+
+    if (!viewAction || !map) {
+      return
+    }
+
+    map.easeTo({
+      center: [atlas.point.longitude, atlas.point.latitude],
+      duration: 450,
+      essential: true,
+      zoom: viewAction.type === 'detail' ? Math.max(map.getZoom(), detailZoom) : Math.max(map.getZoom(), map.getMinZoom()),
+    })
+  }, [atlas.point.latitude, atlas.point.longitude, viewAction])
 
   return <div ref={containerRef} className="atlas-map" />
 }
@@ -375,10 +322,9 @@ function App() {
   const [viewportSize, setViewportSize] = useState<ViewportSize>(() => getViewportSize())
   const [isLocating, setIsLocating] = useState(false)
   const [locationMessage, setLocationMessage] = useState('Stadtgrenze wird geladen...')
+  const [mapViewAction, setMapViewAction] = useState<MapViewAction | null>(null)
   const bootedSimulatedLocation = useRef(false)
-  const mapFrameSize = useMemo(() => (
-    activeAtlas ? getAtlasFrameSize(viewportSize) : null
-  ), [activeAtlas, viewportSize])
+  const mapFrameSize = useMemo(() => (activeAtlas ? getAtlasFrameSize(viewportSize) : null), [activeAtlas, viewportSize])
   const mapFrameStyle = useMemo<CSSProperties>(() => ({
     width: mapFrameSize ? `${mapFrameSize.width}px` : '100vw',
     height: mapFrameSize ? `${mapFrameSize.height}px` : '100svh',
@@ -440,11 +386,7 @@ function App() {
       const sample = await getCurrentLocation()
 
       if (sample) {
-        const nextPoint = {
-          latitude: sample.latitude,
-          longitude: sample.longitude,
-          accuracyM: sample.accuracyM,
-        }
+        const nextPoint = { latitude: sample.latitude, longitude: sample.longitude, accuracyM: sample.accuracyM }
         const nextBoundary = await fetchBoundaryForGpsPoint(nextPoint)
 
         if (nextBoundary) {
@@ -458,6 +400,10 @@ function App() {
     } finally {
       setIsLocating(false)
     }
+  }
+
+  function requestMapViewAction(type: MapViewActionType) {
+    setMapViewAction({ type, nonce: Date.now() })
   }
 
   function nudgeGpsLocation(direction: GpsNudgeDirection) {
@@ -496,7 +442,11 @@ function App() {
       {activeTab === 'atlas' ? (
         activeAtlas ? (
           <div className="atlas-map-frame" style={mapFrameStyle}>
-            <MapLibreCityMap key={mapKey} atlas={activeAtlas} mode={mode} />
+            <MapLibreCityMap key={mapKey} atlas={activeAtlas} mode={mode} viewAction={mapViewAction} />
+            <div className="atlas-map-actions" role="group" aria-label="Map view controls">
+              <button type="button" onClick={() => requestMapViewAction('snap')}>Snap</button>
+              <button type="button" onClick={() => requestMapViewAction('detail')}>Zoom</button>
+            </div>
           </div>
         ) : (
           <div className="atlas-empty-state" style={mapFrameStyle}>
@@ -509,23 +459,11 @@ function App() {
 
       {activeTab === 'atlas' ? (
         <div className="atlas-controls" role="group" aria-label="Atlas location controls">
-          <button
-            className={mode === 'gps' ? 'atlas-control active' : 'atlas-control'}
-            type="button"
-            onClick={useGpsLocation}
-            aria-label="GPS"
-            aria-busy={isLocating}
-          >
+          <button className={mode === 'gps' ? 'atlas-control active' : 'atlas-control'} type="button" onClick={useGpsLocation} aria-label="GPS" aria-busy={isLocating}>
             <Crosshair size={20} aria-hidden="true" />
             <span>GPS</span>
           </button>
-          <button
-            className={mode === 'simulated' ? 'atlas-control active' : 'atlas-control'}
-            type="button"
-            onClick={activateSimulatedLocation}
-            aria-label="Simulated"
-            aria-busy={isLocating && mode === 'simulated'}
-          >
+          <button className={mode === 'simulated' ? 'atlas-control active' : 'atlas-control'} type="button" onClick={activateSimulatedLocation} aria-label="Simulated" aria-busy={isLocating && mode === 'simulated'}>
             <Route size={20} aria-hidden="true" />
             <span>Simulated</span>
           </button>
@@ -544,13 +482,7 @@ function App() {
 
       <nav className="atlas-tabbar" aria-label="App navigation">
         {appTabs.map((tab) => (
-          <button
-            key={tab.key}
-            className={activeTab === tab.key ? 'atlas-tab active' : 'atlas-tab'}
-            type="button"
-            onClick={() => setActiveTab(tab.key)}
-            aria-current={activeTab === tab.key ? 'page' : undefined}
-          >
+          <button key={tab.key} className={activeTab === tab.key ? 'atlas-tab active' : 'atlas-tab'} type="button" onClick={() => setActiveTab(tab.key)} aria-current={activeTab === tab.key ? 'page' : undefined}>
             <strong>{tab.icon}</strong>
             <span>{tab.label}</span>
           </button>
