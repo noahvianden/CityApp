@@ -1,18 +1,17 @@
 .atlas-core {
-  --atlas-shell-width: min(100vw, 332px);
-  --atlas-shell-height: min(100svh, 720px);
+  --atlas-shell-width: 100vw;
+  --atlas-shell-height: 100svh;
   position: fixed;
-  top: 50%;
-  left: 50%;
-  width: var(--atlas-shell-width);
-  height: var(--atlas-shell-height);
-  min-width: 320px;
-  min-height: 640px;
-  transform: translate(-50%, -50%);
+  inset: 0;
+  width: 100vw;
+  height: 100svh;
+  min-width: 0;
+  min-height: 100svh;
+  transform: none;
   background: #f7efe0;
-  border-radius: 28px;
+  border-radius: 0;
   overflow: hidden;
-  box-shadow: 0 18px 54px rgba(28, 24, 20, 0.12);
+  box-shadow: none;
 }
 
 .atlas-core::before {
@@ -180,19 +179,4 @@
 
 .atlas-control.active:not(:first-child) {
   background: rgba(255, 253, 247, 0.88);
-}
-
-@media (max-width: 360px), (max-height: 700px) {
-  .atlas-core {
-    width: 100vw;
-    height: 100svh;
-    min-width: 320px;
-    min-height: 640px;
-    border-radius: 0;
-  }
-
-  .atlas-map-frame,
-  .atlas-empty-state {
-    height: min(452px, calc(100svh - 260px)) !important;
-  }
 }
