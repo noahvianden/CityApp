@@ -438,12 +438,14 @@ function LockAtlasBounds({ bounds }: { bounds: GeoBounds }) {
     let animationFrame = 0
 
     const fitCityToContainer = () => {
+      map.setMinZoom(0)
       map.invalidateSize(false)
       map.setMaxBounds(cityBounds)
       map.fitBounds(cityBounds, {
         animate: false,
         padding: L.point(0, 0),
       })
+      map.setMinZoom(map.getZoom())
     }
 
     const scheduleFitCityToContainer = () => {
@@ -467,6 +469,7 @@ function LockAtlasBounds({ bounds }: { bounds: GeoBounds }) {
         window.cancelAnimationFrame(animationFrame)
       }
 
+      map.setMinZoom(0)
       map.off('resize', scheduleFitCityToContainer)
       window.removeEventListener('resize', scheduleFitCityToContainer)
       window.visualViewport?.removeEventListener('resize', scheduleFitCityToContainer)
