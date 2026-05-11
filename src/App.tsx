@@ -54,6 +54,8 @@ type CityHistoryItem = {
   name: string
   description: string
   badge: string
+  atlas: BoundedAtlasPoint
+  mode: LocationMode
 }
 
 const cityStyleUrl = `${import.meta.env.BASE_URL}city-style.json`
@@ -66,6 +68,7 @@ const worldMaskRing: [number, number][] = [
 ]
 const gpsNudgeMeters = 10
 const metersPerLatitudeDegree = 111_320
+const placeOverviewZoom = 15.25
 const appTabs: AppTabItem[] = [
   { key: 'atlas', icon: 'A', label: 'Atlas', dummyTitle: 'Atlas', dummyBody: 'Explore the current city boundary.' },
   { key: 'memories', icon: 'M', label: 'Memories', dummyTitle: 'Memories coming soon', dummyBody: 'This placeholder will show visited places, saved moments, and city notes.' },
@@ -381,7 +384,7 @@ function MapLibreCityMap({ atlas, mode, viewAction }: { atlas: BoundedAtlasPoint
       duration: 450,
       essential: true,
       pitch: 0,
-      zoom: map.getZoom(),
+      zoom: Math.max(map.getMinZoom(), placeOverviewZoom),
     })
   }, [atlas, viewAction])
 
@@ -402,7 +405,17 @@ function DummyPanel({ tab }: { tab: AppTabItem }) {
   )
 }
 
-function CitySelectionPanel({ history, onSearchClick, onUseCurrentCity }: { history: CityHistoryItem[], onSearchClick: () => void, onUseCurrentCity: () => void }) {
+function CitySelectionPanel({ history, onSelectCity, onUseCurrentCity }: { history: CityHistoryItem[], onSelectCity: (city: CityHistoryItem) => void, onUseCurrentCity: () => void }) {
+  const [isSearchActive, setIsSearchActive] = useState(false)
+  const [searchQuery, setSearchQuery] = useState('')
+  const searchInputRef = useRef<HTMLInputElement | null>(null)
+
+  useEffect(() => {
+    if (isSearchActive) {
+      searchInputRef.current?.focus()
+    }
+  }, [isSearchActive])
+
   return (
     <section className="atlas-city-selection-panel" aria-label="City selection">
       <div className="atlas-city-selection-heading">
@@ -410,14 +423,24 @@ function CitySelectionPanel({ history, onSearchClick, onUseCurrentCity }: { hist
         <p>Major cities first. Any place can become a generated atlas later.</p>
       </div>
 
-      <button className="atlas-city-search" type="button" onClick={onSearchClick} aria-label="Search cities or districts">
-        <span>Search cities or districts</span>
-        <strong>Search</strong>
-      </button>
+      <form className="atlas-city-search" role="search" onSubmit={(event) => event.preventDefault()} onClick={() => setIsSearchActive(true)}>
+        {isSearchActive ? (
+          <input
+            ref={searchInputRef}
+            value={searchQuery}
+            onChange={(event) => setSearchQuery(event.target.value)}
+            placeholder="Search cities or districts"
+            aria-label="Search cities or districts"
+          />
+        ) : (
+          <span>Search cities or districts</span>
+        )}
+        <button type="submit" onClick={() => setIsSearchActive(true)}>Search</button>
+      </form>
 
       <div className="atlas-city-list" aria-label="City history">
         {history.length ? history.map((city) => (
-          <button key={city.cityId} className="atlas-city-option" type="button" onClick={onUseCurrentCity}>
+          <button key={city.cityId} className="atlas-city-option" type="button" onClick={() => onSelectCity(city)}>
             <span className="atlas-city-dot" aria-hidden="true" />
             <span className="atlas-city-option-copy">
               <strong>{city.name}</strong>
@@ -490,13 +513,15 @@ function App() {
     void activateSimulatedLocation()
   }, [])
 
-  function rememberAtlasCity(atlas: BoundedAtlasPoint, badge: string) {
+  function rememberAtlasCity(atlas: BoundedAtlasPoint, badge: string, nextMode: LocationMode) {
     setCityHistory((currentHistory) => {
       const nextCity = {
         cityId: atlas.cityId,
         name: atlas.cityName,
         description: `${atlas.cityStatus} · generated city atlas`,
         badge,
+        atlas,
+        mode: nextMode,
       }
       const withoutDuplicate = currentHistory.filter((city) => city.cityId !== atlas.cityId)
 
@@ -514,7 +539,7 @@ function App() {
 
       if (simulated) {
         setActiveAtlas(simulated)
-        rememberAtlasCity(simulated, 'simulated')
+        rememberAtlasCity(simulated, 'simulated', 'simulated')
       } else {
         setLocationMessage('Keine Stadtgrenze gefunden. Bitte erneut versuchen.')
       }
@@ -537,7 +562,7 @@ function App() {
 
         if (nextBoundary) {
           setActiveAtlas(nextBoundary)
-          rememberAtlasCity(nextBoundary, 'gps')
+          rememberAtlasCity(nextBoundary, 'gps', 'gps')
         } else {
           setLocationMessage('Fuer diesen GPS-Punkt wurde keine Stadtgrenze gefunden.')
         }
@@ -567,6 +592,13 @@ function App() {
       setIsMapFullscreen(false)
       setIsCitySelectionOpen(true)
     }
+  }
+
+  function openHistoryCity(city: CityHistoryItem) {
+    setActiveAtlas(city.atlas)
+    setMode(city.mode)
+    setIsMapFullscreen(false)
+    setIsCitySelectionOpen(false)
   }
 
   function nudgeGpsLocation(direction: GpsNudgeDirection) {
@@ -616,15 +648,17 @@ function App() {
         isCitySelectionOpen ? (
           <CitySelectionPanel
             history={cityHistory}
-            onSearchClick={() => undefined}
+            onSelectCity={openHistoryCity}
             onUseCurrentCity={() => setIsCitySelectionOpen(false)}
           />
         ) : activeAtlas ? (
           <>
             <div className={mapFrameClassName} style={isMapFullscreen ? undefined : mapFrameStyle}>
               <MapLibreCityMap key={mapKey} atlas={activeAtlas} mode={mode} viewAction={mapViewAction} />
-              <div className="atlas-map-action-top" role="group" aria-label="Map default zoom and fullscreen controls">
+              <div className="atlas-map-action-top" role="group" aria-label="Map default zoom control">
                 <button className="atlas-map-action-button" type="button" onClick={() => requestMapViewAction('default')}>Zoom</button>
+              </div>
+              <div className="atlas-map-action-left" role="group" aria-label="Map fullscreen control">
                 <button
                   className="atlas-map-action-button"
                   type="button"
