@@ -32,6 +32,7 @@ type FogMapState = {
   progress: number
   fogCells: number
   isStyleRetryScheduled: boolean
+  retryTimer: number | null
 }
 
 type PatchableMapPrototype = {
@@ -83,6 +84,7 @@ function getOrCreateMapState(map: MapInstance) {
     progress: 0,
     fogCells: 0,
     isStyleRetryScheduled: false,
+    retryTimer: null,
   }
   mapStates.set(map, state)
 
@@ -340,22 +342,31 @@ function updateFogData(state: FogMapState) {
   publish(state)
 }
 
+function clearFogRetry(state: FogMapState) {
+  state.isStyleRetryScheduled = false
+
+  if (state.retryTimer !== null) {
+    window.clearTimeout(state.retryTimer)
+    state.retryTimer = null
+  }
+}
+
 function scheduleFogLayerInstall(map: MapInstance, state: FogMapState) {
-  if (state.isStyleRetryScheduled) {
+  if (state.isStyleRetryScheduled || map.getLayer(fogLayerId)) {
     return
   }
 
   state.isStyleRetryScheduled = true
 
   const retry = () => {
-    state.isStyleRetryScheduled = false
+    clearFogRetry(state)
     ensureFogLayers(map)
   }
 
   const eventedMap = map as EventedMap
   eventedMap.once('load', retry)
-  eventedMap.once('styledata', retry)
-  window.setTimeout(retry, 250)
+  eventedMap.once('idle', retry)
+  state.retryTimer = window.setTimeout(retry, 250)
   logAtlasFog('waiting for style', { cityKey: state.cityKey, fogCells: state.fogCells })
 }
 
@@ -367,6 +378,8 @@ function ensureFogLayers(map: MapInstance) {
     scheduleFogLayerInstall(map, state)
     return
   }
+
+  clearFogRetry(state)
 
   if (!map.getSource(fogSourceId)) {
     map.addSource(fogSourceId, { type: 'geojson', data: createFogFeatureCollection(state) } as AddSourceArgs[1])
@@ -526,6 +539,12 @@ function patchMapPrototype(prototype: PatchableMapPrototype) {
 
   const originalRemove = prototype.remove
   prototype.remove = function patchedRemove(this: MapInstance) {
+    const state = mapStates.get(this)
+
+    if (state) {
+      clearFogRetry(state)
+    }
+
     mapStates.delete(this)
 
     return originalRemove.call(this)
