@@ -7,6 +7,15 @@ import { getNativeCurrentLocation, isNativeRuntime, requestNativeLocationPermiss
 import type { GpsLocationSample } from './locationAdapter'
 
 type LocationMode = 'gps' | 'simulated'
+type AppTab = 'atlas' | 'memories' | 'stats' | 'privacy'
+
+type AppTabItem = {
+  key: AppTab
+  icon: string
+  label: string
+  dummyTitle: string
+  dummyBody: string
+}
 
 type AtlasPoint = {
   latitude: number
@@ -32,6 +41,40 @@ const worldMaskRing: [number, number][] = [
   [-180, -90],
   [-180, 90],
 ]
+const appTabs: AppTabItem[] = [
+  {
+    key: 'atlas',
+    icon: 'A',
+    label: 'Atlas',
+    dummyTitle: 'Atlas',
+    dummyBody: 'Explore the current city boundary.',
+  },
+  {
+    key: 'memories',
+    icon: 'M',
+    label: 'Memories',
+    dummyTitle: 'Memories coming soon',
+    dummyBody: 'This placeholder will show visited places, saved moments, and city notes.',
+  },
+  {
+    key: 'stats',
+    icon: 'S',
+    label: 'Stats',
+    dummyTitle: 'Stats coming soon',
+    dummyBody: 'This placeholder will show discovery progress, visited areas, and atlas activity.',
+  },
+  {
+    key: 'privacy',
+    icon: 'P',
+    label: 'Privacy',
+    dummyTitle: 'Privacy coming soon',
+    dummyBody: 'This placeholder will show location controls, data choices, and privacy settings.',
+  },
+]
+
+function getAppTab(tab: AppTab) {
+  return appTabs.find((item) => item.key === tab) ?? appTabs[0]
+}
 
 function getViewportSize(): ViewportSize {
   if (typeof window === 'undefined') {
@@ -306,8 +349,23 @@ function MapLibreCityMap({ atlas, mode }: { atlas: BoundedAtlasPoint, mode: Loca
   return <div ref={containerRef} className="atlas-map" />
 }
 
+function DummyPanel({ tab }: { tab: AppTabItem }) {
+  return (
+    <section className="atlas-dummy-panel" aria-label={tab.label}>
+      <span className="atlas-dummy-eyebrow">Placeholder</span>
+      <h2>{tab.dummyTitle}</h2>
+      <p>{tab.dummyBody}</p>
+      <div className="atlas-dummy-card">
+        <strong>{tab.icon}</strong>
+        <span>Dummy content for the {tab.label} tab.</span>
+      </div>
+    </section>
+  )
+}
+
 function App() {
   const [mode, setMode] = useState<LocationMode>('simulated')
+  const [activeTab, setActiveTab] = useState<AppTab>('atlas')
   const [activeAtlas, setActiveAtlas] = useState<BoundedAtlasPoint | null>(null)
   const [viewportSize, setViewportSize] = useState<ViewportSize>(() => getViewportSize())
   const [isLocating, setIsLocating] = useState(false)
@@ -323,7 +381,8 @@ function App() {
   const mapKey = activeAtlas
     ? `${activeAtlas.cityId}:${activeAtlas.bounds.south}:${activeAtlas.bounds.west}:${activeAtlas.bounds.north}:${activeAtlas.bounds.east}`
     : 'empty-atlas'
-  const displayedCityName = activeAtlas?.cityName ?? 'City'
+  const activeTabItem = getAppTab(activeTab)
+  const displayedTitle = activeTab === 'atlas' ? activeAtlas?.cityName ?? 'City' : activeTabItem.label
 
   useEffect(() => {
     const updateViewportSize = () => {
@@ -399,63 +458,65 @@ function App() {
   return (
     <main className="atlas-core">
       <header className="atlas-header">
-        <h1>{displayedCityName}</h1>
+        <h1>{displayedTitle}</h1>
         <div className="atlas-header-actions" aria-hidden="true">
           <button className="atlas-icon-button" type="button">+</button>
           <button className="atlas-icon-button" type="button">L</button>
         </div>
       </header>
 
-      {activeAtlas ? (
-        <div className="atlas-map-frame" style={mapFrameStyle}>
-          <MapLibreCityMap key={mapKey} atlas={activeAtlas} mode={mode} />
-        </div>
+      {activeTab === 'atlas' ? (
+        activeAtlas ? (
+          <div className="atlas-map-frame" style={mapFrameStyle}>
+            <MapLibreCityMap key={mapKey} atlas={activeAtlas} mode={mode} />
+          </div>
+        ) : (
+          <div className="atlas-empty-state" style={mapFrameStyle}>
+            <span>{isLocating ? 'Stadtgrenze wird geladen...' : locationMessage}</span>
+          </div>
+        )
       ) : (
-        <div className="atlas-empty-state" style={mapFrameStyle}>
-          <span>{isLocating ? 'Stadtgrenze wird geladen...' : locationMessage}</span>
-        </div>
+        <DummyPanel tab={activeTabItem} />
       )}
 
-      <div className="atlas-controls" role="group" aria-label="Atlas location controls">
-        <button
-          className={mode === 'gps' ? 'atlas-control active' : 'atlas-control'}
-          type="button"
-          onClick={useGpsLocation}
-          aria-label="GPS"
-          aria-busy={isLocating}
-        >
-          <Crosshair size={20} aria-hidden="true" />
-          <span>GPS</span>
-        </button>
-        <button
-          className={mode === 'simulated' ? 'atlas-control active' : 'atlas-control'}
-          type="button"
-          onClick={activateSimulatedLocation}
-          aria-label="Simulated"
-          aria-busy={isLocating && mode === 'simulated'}
-        >
-          <Route size={20} aria-hidden="true" />
-          <span>Simulated</span>
-        </button>
-      </div>
+      {activeTab === 'atlas' ? (
+        <div className="atlas-controls" role="group" aria-label="Atlas location controls">
+          <button
+            className={mode === 'gps' ? 'atlas-control active' : 'atlas-control'}
+            type="button"
+            onClick={useGpsLocation}
+            aria-label="GPS"
+            aria-busy={isLocating}
+          >
+            <Crosshair size={20} aria-hidden="true" />
+            <span>GPS</span>
+          </button>
+          <button
+            className={mode === 'simulated' ? 'atlas-control active' : 'atlas-control'}
+            type="button"
+            onClick={activateSimulatedLocation}
+            aria-label="Simulated"
+            aria-busy={isLocating && mode === 'simulated'}
+          >
+            <Route size={20} aria-hidden="true" />
+            <span>Simulated</span>
+          </button>
+        </div>
+      ) : null}
 
       <nav className="atlas-tabbar" aria-label="App navigation">
-        <button className="atlas-tab active" type="button" aria-current="page">
-          <strong>A</strong>
-          <span>Atlas</span>
-        </button>
-        <button className="atlas-tab" type="button">
-          <strong>M</strong>
-          <span>Memories</span>
-        </button>
-        <button className="atlas-tab" type="button">
-          <strong>S</strong>
-          <span>Stats</span>
-        </button>
-        <button className="atlas-tab" type="button">
-          <strong>P</strong>
-          <span>Privacy</span>
-        </button>
+        {appTabs.map((tab) => (
+          <button
+            key={tab.key}
+            className={activeTab === tab.key ? 'atlas-tab active' : 'atlas-tab'}
+            type="button"
+            onClick={() => setActiveTab(tab.key)}
+            aria-current={activeTab === tab.key ? 'page' : undefined}
+          >
+            <strong>{tab.icon}</strong>
+            <span>{tab.label}</span>
+          </button>
+        ))}
       </nav>
     </main>
   )
