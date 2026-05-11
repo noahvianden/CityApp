@@ -1,5 +1,11 @@
 import { useEffect, useState, type CSSProperties } from 'react'
-import { getAtlasFogSnapshot, installAtlasGeoFogBridge, subscribeAtlasFog } from './atlasGeoFogBridge'
+import {
+  getAtlasFogSnapshot,
+  getAtlasFogVisible,
+  installAtlasGeoFogBridge,
+  setAtlasFogVisible,
+  subscribeAtlasFog,
+} from './atlasGeoFogBridge'
 import App from './App'
 import './atlasFogOverlay.css'
 
@@ -26,6 +32,25 @@ function AtlasFogProgress() {
   )
 }
 
+function AtlasFogToggle() {
+  const [isVisible, setIsVisible] = useState(() => getAtlasFogVisible())
+
+  function toggleFog() {
+    setIsVisible((current) => {
+      const next = !current
+      setAtlasFogVisible(next)
+
+      return next
+    })
+  }
+
+  return (
+    <button className="atlas-fog-toggle" type="button" onClick={toggleFog} aria-pressed={isVisible}>
+      {isVisible ? 'Hide fog' : 'Show fog'}
+    </button>
+  )
+}
+
 export default function FoggedApp() {
   const [isFogBridgeReady, setIsFogBridgeReady] = useState(false)
 
@@ -49,6 +74,7 @@ export default function FoggedApp() {
     <>
       {isFogBridgeReady ? <App /> : null}
       <AtlasFogProgress />
+      <AtlasFogToggle />
     </>
   )
 }
