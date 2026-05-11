@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import L from 'leaflet'
 import { Crosshair, Route } from 'lucide-react'
 import { CircleMarker, MapContainer, TileLayer, Tooltip, useMap } from 'react-leaflet'
@@ -16,6 +16,11 @@ type AtlasPoint = {
   latitude: number
   longitude: number
   accuracyM?: number
+}
+
+type AtlasFrameSize = {
+  width: number
+  height: number
 }
 
 type BoundaryGeometry =
@@ -330,6 +335,38 @@ async function getCurrentLocation() {
   return getBrowserCurrentLocation()
 }
 
+function getGeoBoundsAspectRatio(bounds: GeoBounds) {
+  const northWest = L.CRS.EPSG3857.project(L.latLng(bounds.north, bounds.west))
+  const southEast = L.CRS.EPSG3857.project(L.latLng(bounds.south, bounds.east))
+  const width = Math.abs(southEast.x - northWest.x)
+  const height = Math.abs(southEast.y - northWest.y)
+
+  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
+    return 1
+  }
+
+  return Math.min(Math.max(width / height, 0.25), 4)
+}
+
+function getAtlasFrameSize(bounds: GeoBounds): AtlasFrameSize {
+  const viewportWidth = typeof window === 'undefined' ? 320 : Math.max(window.innerWidth, 1)
+  const viewportHeight = typeof window === 'undefined' ? 640 : Math.max(window.innerHeight, 1)
+  const boundsAspectRatio = getGeoBoundsAspectRatio(bounds)
+  const viewportAspectRatio = viewportWidth / viewportHeight
+
+  if (viewportAspectRatio > boundsAspectRatio) {
+    return {
+      width: viewportHeight * boundsAspectRatio,
+      height: viewportHeight,
+    }
+  }
+
+  return {
+    width: viewportWidth,
+    height: viewportWidth / boundsAspectRatio,
+  }
+}
+
 function LockAtlasBounds({ bounds }: { bounds: GeoBounds }) {
   const map = useMap()
 
@@ -338,26 +375,41 @@ function LockAtlasBounds({ bounds }: { bounds: GeoBounds }) {
       [bounds.south, bounds.west],
       [bounds.north, bounds.east],
     ])
+    let animationFrame = 0
 
-    const fitCityToTopEdge = () => {
-      map.setMaxBounds(cityBounds.pad(0.5))
+    const fitCityToContainer = () => {
+      map.invalidateSize(false)
+      map.setMaxBounds(cityBounds)
       map.fitBounds(cityBounds, {
         animate: false,
         padding: L.point(0, 0),
       })
-
-      const topEdge = map.latLngToContainerPoint(cityBounds.getNorthWest()).y
-
-      if (Number.isFinite(topEdge) && topEdge > 0.5) {
-        map.panBy(L.point(0, topEdge), { animate: false })
-      }
     }
 
-    fitCityToTopEdge()
-    map.on('resize', fitCityToTopEdge)
+    const scheduleFitCityToContainer = () => {
+      if (animationFrame) {
+        window.cancelAnimationFrame(animationFrame)
+      }
+
+      animationFrame = window.requestAnimationFrame(() => {
+        animationFrame = 0
+        fitCityToContainer()
+      })
+    }
+
+    scheduleFitCityToContainer()
+    map.on('resize', scheduleFitCityToContainer)
+    window.addEventListener('resize', scheduleFitCityToContainer)
+    window.visualViewport?.addEventListener('resize', scheduleFitCityToContainer)
 
     return () => {
-      map.off('resize', fitCityToTopEdge)
+      if (animationFrame) {
+        window.cancelAnimationFrame(animationFrame)
+      }
+
+      map.off('resize', scheduleFitCityToContainer)
+      window.removeEventListener('resize', scheduleFitCityToContainer)
+      window.visualViewport?.removeEventListener('resize', scheduleFitCityToContainer)
     }
   }, [bounds, map])
 
@@ -403,8 +455,28 @@ function App() {
   const [activePoint, setActivePoint] = useState<AtlasPoint>(initialPoint)
   const [activeBounds, setActiveBounds] = useState<GeoBounds>(initialBounds)
   const [activeBoundary, setActiveBoundary] = useState<BoundaryGeometry>(initialBoundary)
+  const [mapFrameSize, setMapFrameSize] = useState<AtlasFrameSize>(() => getAtlasFrameSize(initialBounds))
   const [isLocating, setIsLocating] = useState(false)
   const bootedSimulatedLocation = useRef(false)
+  const mapFrameStyle = useMemo<CSSProperties>(() => ({
+    width: `${mapFrameSize.width}px`,
+    height: `${mapFrameSize.height}px`,
+  }), [mapFrameSize.height, mapFrameSize.width])
+
+  useEffect(() => {
+    const updateMapFrameSize = () => {
+      setMapFrameSize(getAtlasFrameSize(activeBounds))
+    }
+
+    updateMapFrameSize()
+    window.addEventListener('resize', updateMapFrameSize)
+    window.visualViewport?.addEventListener('resize', updateMapFrameSize)
+
+    return () => {
+      window.removeEventListener('resize', updateMapFrameSize)
+      window.visualViewport?.removeEventListener('resize', updateMapFrameSize)
+    }
+  }, [activeBounds])
 
   useEffect(() => {
     if (bootedSimulatedLocation.current) {
@@ -456,38 +528,40 @@ function App() {
 
   return (
     <main className="atlas-core">
-      <MapContainer
-        center={[initialPoint.latitude, initialPoint.longitude]}
-        zoom={14}
-        zoomSnap={0.1}
-        scrollWheelZoom
-        maxBoundsViscosity={1}
-        zoomControl={false}
-        className="atlas-map"
-      >
-        <TileLayer
-          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>'
-          url="https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png"
-        />
-        <LockAtlasBounds bounds={activeBounds} />
-        <BoundaryMaskLayer boundary={activeBoundary} />
-        {activePoint.accuracyM ? (
+      <div className="atlas-map-frame" style={mapFrameStyle}>
+        <MapContainer
+          center={[initialPoint.latitude, initialPoint.longitude]}
+          zoom={14}
+          zoomSnap={0.1}
+          scrollWheelZoom
+          maxBoundsViscosity={1}
+          zoomControl={false}
+          className="atlas-map"
+        >
+          <TileLayer
+            attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>'
+            url="https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png"
+          />
+          <LockAtlasBounds bounds={activeBounds} />
+          <BoundaryMaskLayer boundary={activeBoundary} />
+          {activePoint.accuracyM ? (
+            <CircleMarker
+              center={[activePoint.latitude, activePoint.longitude]}
+              radius={Math.min(Math.max(activePoint.accuracyM / 3, 14), 42)}
+              pathOptions={{ color: '#2f7d57', fillColor: '#2f7d57', fillOpacity: 0.12, weight: 1 }}
+            />
+          ) : null}
           <CircleMarker
             center={[activePoint.latitude, activePoint.longitude]}
-            radius={Math.min(Math.max(activePoint.accuracyM / 3, 14), 42)}
-            pathOptions={{ color: '#2f7d57', fillColor: '#2f7d57', fillOpacity: 0.12, weight: 1 }}
-          />
-        ) : null}
-        <CircleMarker
-          center={[activePoint.latitude, activePoint.longitude]}
-          radius={9}
-          pathOptions={{ color: '#ffffff', fillColor: mode === 'gps' ? '#2f7d57' : '#d78b35', fillOpacity: 1, weight: 3 }}
-        >
-          <Tooltip direction="top" offset={[0, -8]} opacity={0.95}>
-            {mode === 'gps' ? 'GPS' : 'Simulated'}
-          </Tooltip>
-        </CircleMarker>
-      </MapContainer>
+            radius={9}
+            pathOptions={{ color: '#ffffff', fillColor: mode === 'gps' ? '#2f7d57' : '#d78b35', fillOpacity: 1, weight: 3 }}
+          >
+            <Tooltip direction="top" offset={[0, -8]} opacity={0.95}>
+              {mode === 'gps' ? 'GPS' : 'Simulated'}
+            </Tooltip>
+          </CircleMarker>
+        </MapContainer>
+      </div>
 
       <div className="atlas-controls" role="group" aria-label="Atlas location controls">
         <button
