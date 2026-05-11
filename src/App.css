@@ -16,7 +16,7 @@
 
 .atlas-header {
   position: absolute;
-  top: 51px;
+  top: 48px;
   left: 17px;
   right: 13px;
   z-index: 40;
@@ -31,10 +31,10 @@
   margin: 0;
   overflow: hidden;
   color: #2a2824;
-  font-size: 25px;
+  font-size: 30px;
   font-weight: 900;
   line-height: 1;
-  letter-spacing: -0.05em;
+  letter-spacing: -0.055em;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -63,12 +63,12 @@
 .atlas-map-frame,
 .atlas-empty-state {
   position: absolute;
-  top: 112px;
+  top: 105px;
   left: 13px;
   z-index: 10;
   box-sizing: border-box;
   width: calc(var(--atlas-shell-width) - 26px) !important;
-  height: min(452px, calc(var(--atlas-shell-height) - 268px)) !important;
+  height: calc(var(--atlas-shell-height) - 255px) !important;
   max-width: none;
   max-height: none;
   transform: none;
@@ -113,8 +113,7 @@
   position: absolute;
   left: 51px;
   right: 31px;
-  top: min(581px, calc(var(--atlas-shell-height) - 138px));
-  bottom: auto;
+  bottom: 98px;
   z-index: 50;
   display: flex;
   align-items: center;
