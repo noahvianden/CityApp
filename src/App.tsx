@@ -390,11 +390,13 @@ function DummyPanel({ tab }: { tab: AppTabItem }) {
 function CitySelectionPanel({ atlas, onUseCurrentCity }: { atlas: BoundedAtlasPoint | null, onUseCurrentCity: () => void }) {
   const currentCityName = atlas?.cityName ?? 'Berlin'
   const currentCityDescription = atlas ? `${atlas.cityStatus} · generated city atlas` : 'Suggested · generated district atlas'
-  const otherCities: CitySelectionOption[] = [
-    { name: 'Berlin', description: 'Suggested · generated district atlas', badge: 'new', tone: 'new', enabled: false },
-    { name: 'Lisbon', description: 'Hills, miradouros, late cafés', badge: 'soon', tone: 'teal', enabled: false },
-    { name: 'Tokyo', description: 'Neighborhoods, stations, night walks', badge: 'soon', tone: 'purple', enabled: false },
-  ].filter((city) => city.name.toLowerCase() !== currentCityName.toLowerCase())
+  const otherCities = ([
+	  { name: 'Berlin', description: 'Suggested · generated district atlas', badge: 'new', tone: 'new', enabled: false },
+	  { name: 'Lisbon', description: 'Hills, miradouros, late cafés', badge: 'soon', tone: 'teal', enabled: false },
+	  { name: 'Tokyo', description: 'Neighborhoods, stations, night walks', badge: 'soon', tone: 'purple', enabled: false },
+	] satisfies CitySelectionOption[]).filter(
+	  (city) => city.name.toLowerCase() !== currentCityName.toLowerCase(),
+	)
   const cityOptions: CitySelectionOption[] = [
     { name: currentCityName, description: currentCityDescription, badge: 'current', tone: 'new', enabled: true },
     ...otherCities.slice(0, 2),
