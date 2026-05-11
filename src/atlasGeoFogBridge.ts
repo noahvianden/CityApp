@@ -1,5 +1,3 @@
-import * as maplibregl from 'maplibre-gl'
-
 type MapInstance = import('maplibre-gl').Map
 type AddLayerArgs = Parameters<MapInstance['addLayer']>
 type AddSourceArgs = Parameters<MapInstance['addSource']>
@@ -7,47 +5,14 @@ type SetMaxBoundsArgs = Parameters<MapInstance['setMaxBounds']>
 
 type Coordinate = [number, number]
 type LinearRing = Coordinate[]
-
-type PolygonGeometry = {
-  type: 'Polygon'
-  coordinates: LinearRing[]
-}
-
-type MultiPolygonGeometry = {
-  type: 'MultiPolygon'
-  coordinates: LinearRing[][]
-}
-
+type PolygonGeometry = { type: 'Polygon', coordinates: LinearRing[] }
+type MultiPolygonGeometry = { type: 'MultiPolygon', coordinates: LinearRing[][] }
 type BoundaryGeometry = PolygonGeometry | MultiPolygonGeometry
-
-type PointGeometry = {
-  type: 'Point'
-  coordinates: Coordinate
-}
-
-type Feature<TGeometry> = {
-  type: 'Feature'
-  geometry: TGeometry
-  properties: Record<string, unknown>
-}
-
-type FeatureCollection<TGeometry> = {
-  type: 'FeatureCollection'
-  features: Array<Feature<TGeometry>>
-}
-
-type GeoBounds = {
-  west: number
-  south: number
-  east: number
-  north: number
-}
-
-type RevealPoint = {
-  lng: number
-  lat: number
-  revealedAt: number
-}
+type PointGeometry = { type: 'Point', coordinates: Coordinate }
+type Feature<TGeometry> = { type: 'Feature', geometry: TGeometry, properties: Record<string, unknown> }
+type FeatureCollection<TGeometry> = { type: 'FeatureCollection', features: Array<Feature<TGeometry>> }
+type GeoBounds = { west: number, south: number, east: number, north: number }
+type RevealPoint = { lng: number, lat: number, revealedAt: number }
 
 type AtlasFogSnapshot = {
   cityKey: string | null
@@ -55,18 +20,8 @@ type AtlasFogSnapshot = {
   revealedPoints: number
 }
 
-type UpdatableGeoJsonSource = {
-  setData: (data: unknown) => void
-}
-
-type AtlasPointSource = UpdatableGeoJsonSource & {
-  __atlasFogWrapped?: boolean
-}
-
-type PatchableMapPrototype = typeof maplibregl.Map.prototype & {
-  __atlasFogPatched?: boolean
-}
-
+type UpdatableGeoJsonSource = { setData: (data: unknown) => void }
+type AtlasPointSource = UpdatableGeoJsonSource & { __atlasFogWrapped?: boolean }
 type FogMapState = {
   map: MapInstance
   boundary: BoundaryGeometry | null
@@ -74,6 +29,14 @@ type FogMapState = {
   cityKey: string | null
   revealPoints: RevealPoint[]
   progress: number
+}
+
+type PatchableMapPrototype = {
+  __atlasFogPatched?: boolean
+  addLayer: MapInstance['addLayer']
+  addSource: MapInstance['addSource']
+  remove: MapInstance['remove']
+  setMaxBounds: MapInstance['setMaxBounds']
 }
 
 const fogSourceId = 'atlas-fog-source'
@@ -87,17 +50,12 @@ const storagePrefix = 'cityapp:atlas-geo-fog:'
 const revealRadiusMeters = 520
 const revealSpacingMeters = 32
 const circleSteps = 48
-const worldRing: LinearRing = [
-  [-180, 90],
-  [180, 90],
-  [180, -90],
-  [-180, -90],
-  [-180, 90],
-]
+const worldRing: LinearRing = [[-180, 90], [180, 90], [180, -90], [-180, -90], [-180, 90]]
 
 const mapStates = new WeakMap<MapInstance, FogMapState>()
 const listeners = new Set<(snapshot: AtlasFogSnapshot) => void>()
 let lastSnapshot: AtlasFogSnapshot = { cityKey: null, progress: 0, revealedPoints: 0 }
+let installPromise: Promise<void> | null = null
 
 function isFiniteNumber(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value)
@@ -114,11 +72,7 @@ function normalizeRing(value: unknown): LinearRing | null {
 
   const coordinates = value.filter(isCoordinate).map((coordinate) => [coordinate[0], coordinate[1]] as Coordinate)
 
-  if (coordinates.length < 4) {
-    return null
-  }
-
-  return coordinates
+  return coordinates.length >= 4 ? coordinates : null
 }
 
 function normalizePolygon(value: unknown): LinearRing[] | null {
@@ -144,10 +98,7 @@ function normalizeBoundary(value: unknown): BoundaryGeometry | null {
   }
 
   if (geometry.type === 'MultiPolygon' && Array.isArray(geometry.coordinates)) {
-    const polygons = geometry.coordinates
-      .map(normalizePolygon)
-      .filter((polygon): polygon is LinearRing[] => polygon !== null)
-
+    const polygons = geometry.coordinates.map(normalizePolygon).filter((polygon): polygon is LinearRing[] => polygon !== null)
     return polygons.length ? { type: 'MultiPolygon', coordinates: polygons } : null
   }
 
@@ -178,16 +129,9 @@ function getOrCreateMapState(map: MapInstance) {
     return existing
   }
 
-  const state: FogMapState = {
-    map,
-    boundary: null,
-    bounds: null,
-    cityKey: null,
-    revealPoints: [],
-    progress: 0,
-  }
-
+  const state: FogMapState = { map, boundary: null, bounds: null, cityKey: null, revealPoints: [], progress: 0 }
   mapStates.set(map, state)
+
   return state
 }
 
@@ -213,11 +157,7 @@ function boundsFromBoundary(boundary: BoundaryGeometry | null) {
     }
   }
 
-  if (![west, south, east, north].every(Number.isFinite) || west >= east || south >= north) {
-    return null
-  }
-
-  return { west, south, east, north }
+  return [west, south, east, north].every(Number.isFinite) && west < east && south < north ? { west, south, east, north } : null
 }
 
 function normalizeBounds(value: unknown): GeoBounds | null {
@@ -225,30 +165,21 @@ function normalizeBounds(value: unknown): GeoBounds | null {
     const [west, south] = value[0]
     const [east, north] = value[1]
 
-    if (west < east && south < north) {
-      return { west, south, east, north }
-    }
+    return west < east && south < north ? { west, south, east, north } : null
   }
 
-  const candidate = value as {
-    getWest?: () => number
-    getSouth?: () => number
-    getEast?: () => number
-    getNorth?: () => number
+  const bounds = value as { getWest?: () => number, getSouth?: () => number, getEast?: () => number, getNorth?: () => number }
+
+  if (!bounds?.getWest || !bounds.getSouth || !bounds.getEast || !bounds.getNorth) {
+    return null
   }
 
-  if (candidate?.getWest && candidate.getSouth && candidate.getEast && candidate.getNorth) {
-    const west = candidate.getWest()
-    const south = candidate.getSouth()
-    const east = candidate.getEast()
-    const north = candidate.getNorth()
+  const west = bounds.getWest()
+  const south = bounds.getSouth()
+  const east = bounds.getEast()
+  const north = bounds.getNorth()
 
-    if ([west, south, east, north].every(Number.isFinite) && west < east && south < north) {
-      return { west, south, east, north }
-    }
-  }
-
-  return null
+  return [west, south, east, north].every(Number.isFinite) && west < east && south < north ? { west, south, east, north } : null
 }
 
 function cityKeyFromBounds(bounds: GeoBounds) {
@@ -264,9 +195,7 @@ function loadRevealPoints(cityKey: string) {
     }
 
     return parsed.filter((point): point is RevealPoint => (
-      isFiniteNumber(point?.lng) &&
-      isFiniteNumber(point?.lat) &&
-      isFiniteNumber(point?.revealedAt)
+      isFiniteNumber(point?.lng) && isFiniteNumber(point?.lat) && isFiniteNumber(point?.revealedAt)
     ))
   } catch {
     return []
@@ -323,10 +252,7 @@ function createCircleRing(point: RevealPoint, radiusMeters: number): LinearRing 
 
   for (let index = 0; index <= circleSteps; index += 1) {
     const angle = (index / circleSteps) * Math.PI * 2
-    ring.push([
-      point.lng + Math.cos(angle) * longitudeRadius,
-      point.lat + Math.sin(angle) * latitudeRadius,
-    ])
+    ring.push([point.lng + Math.cos(angle) * longitudeRadius, point.lat + Math.sin(angle) * latitudeRadius])
   }
 
   return ring
@@ -355,14 +281,21 @@ function pointInPolygon(point: { lng: number, lat: number }, polygon: LinearRing
   return Boolean(outerRing) && pointInRing(point, outerRing) && !holes.some((hole) => pointInRing(point, hole))
 }
 
+function isPointInsideBoundary(point: { lng: number, lat: number }, boundary: BoundaryGeometry | null) {
+  if (!boundary) {
+    return true
+  }
+
+  const polygons = boundary.type === 'Polygon' ? [boundary.coordinates] : boundary.coordinates
+
+  return polygons.some((polygon) => pointInPolygon(point, polygon))
+}
+
 function createFogGeometry(state: FogMapState): BoundaryGeometry {
   const revealHoles = state.revealPoints.map((point) => ({ point, ring: createCircleRing(point, revealRadiusMeters) }))
 
   if (!state.boundary) {
-    return {
-      type: 'Polygon',
-      coordinates: [worldRing, ...revealHoles.map((hole) => hole.ring)],
-    }
+    return { type: 'Polygon', coordinates: [worldRing, ...revealHoles.map((hole) => hole.ring)] }
   }
 
   if (state.boundary.type === 'Polygon') {
@@ -370,9 +303,7 @@ function createFogGeometry(state: FogMapState): BoundaryGeometry {
       type: 'Polygon',
       coordinates: [
         ...state.boundary.coordinates,
-        ...revealHoles
-          .filter((hole) => pointInPolygon(hole.point, state.boundary?.type === 'Polygon' ? state.boundary.coordinates : []))
-          .map((hole) => hole.ring),
+        ...revealHoles.filter((hole) => pointInPolygon(hole.point, state.boundary?.type === 'Polygon' ? state.boundary.coordinates : [])).map((hole) => hole.ring),
       ],
     }
   }
@@ -381,9 +312,7 @@ function createFogGeometry(state: FogMapState): BoundaryGeometry {
     type: 'MultiPolygon',
     coordinates: state.boundary.coordinates.map((polygon) => [
       ...polygon,
-      ...revealHoles
-        .filter((hole) => pointInPolygon(hole.point, polygon))
-        .map((hole) => hole.ring),
+      ...revealHoles.filter((hole) => pointInPolygon(hole.point, polygon)).map((hole) => hole.ring),
     ]),
   }
 }
@@ -401,16 +330,6 @@ function createRevealFeatureCollection(state: FogMapState): FeatureCollection<Po
       properties: { revealedAt: point.revealedAt },
     })),
   }
-}
-
-function isPointInsideBoundary(point: { lng: number, lat: number }, boundary: BoundaryGeometry | null) {
-  if (!boundary) {
-    return true
-  }
-
-  const polygons = boundary.type === 'Polygon' ? [boundary.coordinates] : boundary.coordinates
-
-  return polygons.some((polygon) => pointInPolygon(point, polygon))
 }
 
 function estimateProgress(state: FogMapState) {
@@ -442,19 +361,11 @@ function estimateProgress(state: FogMapState) {
     }
   }
 
-  if (!sampleCount) {
-    return 0
-  }
-
-  return Math.min(100, Math.round((revealedCount / sampleCount) * 100))
+  return sampleCount ? Math.min(100, Math.round((revealedCount / sampleCount) * 100)) : 0
 }
 
 function publish(state: FogMapState) {
-  lastSnapshot = {
-    cityKey: state.cityKey,
-    progress: state.progress,
-    revealedPoints: state.revealPoints.length,
-  }
+  lastSnapshot = { cityKey: state.cityKey, progress: state.progress, revealedPoints: state.revealPoints.length }
   listeners.forEach((listener) => listener(lastSnapshot))
 }
 
@@ -464,18 +375,8 @@ function getSource(map: MapInstance, sourceId: string) {
 
 function updateFogData(state: FogMapState) {
   refreshCityKey(state)
-
-  const fogSource = getSource(state.map, fogSourceId)
-  const revealSource = getSource(state.map, revealSourceId)
-
-  if (fogSource) {
-    fogSource.setData(createFogFeature(state))
-  }
-
-  if (revealSource) {
-    revealSource.setData(createRevealFeatureCollection(state))
-  }
-
+  getSource(state.map, fogSourceId)?.setData(createFogFeature(state))
+  getSource(state.map, revealSourceId)?.setData(createRevealFeatureCollection(state))
   state.progress = estimateProgress(state)
   publish(state)
 }
@@ -501,10 +402,7 @@ function ensureFogLayers(map: MapInstance) {
       id: fogLayerId,
       type: 'fill',
       source: fogSourceId,
-      paint: {
-        'fill-color': '#252b29',
-        'fill-opacity': 0.62,
-      },
+      paint: { 'fill-color': '#252b29', 'fill-opacity': 0.62 },
     } as AddLayerArgs[0])
   }
 
@@ -545,6 +443,7 @@ function revealMapPoint(map: MapInstance, point: { lng: number, lat: number }) {
 
   ensureFogLayers(map)
   updateFogData(state)
+  console.info('[atlas-fog] reveal', { progress: state.progress, revealedPoints: state.revealPoints.length })
 }
 
 function wrapAtlasPointSource(map: MapInstance) {
@@ -574,6 +473,7 @@ function handleSourceAdded(map: MapInstance, sourceId: string, source: AddSource
     state.bounds = boundsFromBoundary(state.boundary) ?? state.bounds
     refreshCityKey(state)
     ensureFogLayers(map)
+    console.info('[atlas-fog] boundary ready', { cityKey: state.cityKey })
     return
   }
 
@@ -587,9 +487,7 @@ function handleSourceAdded(map: MapInstance, sourceId: string, source: AddSource
   }
 }
 
-function installAtlasGeoFogBridge() {
-  const prototype = maplibregl.Map.prototype as PatchableMapPrototype
-
+function patchMapPrototype(prototype: PatchableMapPrototype) {
   if (prototype.__atlasFogPatched) {
     return
   }
@@ -635,13 +533,24 @@ function installAtlasGeoFogBridge() {
   }
 }
 
-installAtlasGeoFogBridge()
+export function installAtlasGeoFogBridge() {
+  if (!installPromise) {
+    installPromise = import('maplibre-gl').then((maplibregl) => {
+      patchMapPrototype(maplibregl.Map.prototype as unknown as PatchableMapPrototype)
+      console.info('[atlas-fog] bridge installed')
+    })
+  }
+
+  return installPromise
+}
 
 export function subscribeAtlasFog(listener: (snapshot: AtlasFogSnapshot) => void) {
   listeners.add(listener)
   listener(lastSnapshot)
 
-  return () => listeners.delete(listener)
+  return () => {
+    listeners.delete(listener)
+  }
 }
 
 export function getAtlasFogSnapshot() {
