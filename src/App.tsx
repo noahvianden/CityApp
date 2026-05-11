@@ -296,6 +296,7 @@ function App() {
   const mapKey = activeAtlas
     ? `${activeAtlas.cityId}:${activeAtlas.bounds.south}:${activeAtlas.bounds.west}:${activeAtlas.bounds.north}:${activeAtlas.bounds.east}`
     : 'empty-atlas'
+  const displayedCityName = activeAtlas?.cityName ?? 'City'
 
   useEffect(() => {
     const updateViewportSize = () => {
@@ -370,15 +371,17 @@ function App() {
 
   return (
     <main className="atlas-core">
+      <header className="atlas-header">
+        <h1>{displayedCityName}</h1>
+        <div className="atlas-header-actions" aria-hidden="true">
+          <button className="atlas-icon-button" type="button">+</button>
+          <button className="atlas-icon-button" type="button">L</button>
+        </div>
+      </header>
+
       {activeAtlas ? (
         <div className="atlas-map-frame" style={mapFrameStyle}>
           <MapLibreCityMap key={mapKey} atlas={activeAtlas} mode={mode} />
-          <div className="atlas-city-badge" aria-live="polite">
-            <span className="atlas-city-name">{activeAtlas.cityName}</span>
-            <span className="atlas-city-meta">
-              {activeAtlas.cityCountry} · {activeAtlas.cityStatus}
-            </span>
-          </div>
         </div>
       ) : (
         <div className="atlas-empty-state" style={mapFrameStyle}>
@@ -408,6 +411,25 @@ function App() {
           <span>Simulated</span>
         </button>
       </div>
+
+      <nav className="atlas-tabbar" aria-label="App navigation">
+        <button className="atlas-tab active" type="button" aria-current="page">
+          <strong>A</strong>
+          <span>Atlas</span>
+        </button>
+        <button className="atlas-tab" type="button">
+          <strong>M</strong>
+          <span>Memories</span>
+        </button>
+        <button className="atlas-tab" type="button">
+          <strong>S</strong>
+          <span>Stats</span>
+        </button>
+        <button className="atlas-tab" type="button">
+          <strong>P</strong>
+          <span>Privacy</span>
+        </button>
+      </nav>
     </main>
   )
 }
