@@ -44,6 +44,14 @@ type UpdatableGeoJsonSource = {
   setData: (data: MapLibrePointFeature) => void
 }
 
+type CitySelectionOption = {
+  name: string
+  description: string
+  badge: string
+  tone: 'new' | 'teal' | 'purple'
+  enabled: boolean
+}
+
 const cityStyleUrl = `${import.meta.env.BASE_URL}city-style.json`
 const worldMaskRing: [number, number][] = [
   [-180, 90],
@@ -68,10 +76,6 @@ function getAppTab(tab: AppTab) {
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(Math.max(value, min), max)
-}
-
-function formatCoordinate(value: number, positive: string, negative: string) {
-  return `${Math.abs(value).toFixed(4)}° ${value >= 0 ? positive : negative}`
 }
 
 function getViewportSize(): ViewportSize {
@@ -259,7 +263,7 @@ function MapLibreCityMap({ atlas, mode, viewAction }: { atlas: BoundedAtlasPoint
           id: 'atlas-outside-city-mask',
           type: 'fill',
           source: 'atlas-outside-mask-source',
-          paint: { 'fill-color': '#536b66', 'fill-opacity': 0.82 },
+          paint: { 'fill-color': '#536b66', 'fill-opacity': 0.52 },
         })
         map.addLayer({
           id: 'atlas-outline',
@@ -363,43 +367,57 @@ function DummyPanel({ tab }: { tab: AppTabItem }) {
   )
 }
 
-function CityDetailPanel({ atlas, mode, onBack }: { atlas: BoundedAtlasPoint, mode: LocationMode, onBack: () => void }) {
-  const latitude = formatCoordinate(atlas.point.latitude, 'N', 'S')
-  const longitude = formatCoordinate(atlas.point.longitude, 'E', 'W')
-  const north = formatCoordinate(atlas.bounds.north, 'N', 'S')
-  const south = formatCoordinate(atlas.bounds.south, 'N', 'S')
-  const east = formatCoordinate(atlas.bounds.east, 'E', 'W')
-  const west = formatCoordinate(atlas.bounds.west, 'E', 'W')
+function CitySelectionPanel({ atlas, onUseCurrentCity }: { atlas: BoundedAtlasPoint | null, onUseCurrentCity: () => void }) {
+  const currentCityName = atlas?.cityName ?? 'Berlin'
+  const currentCityDescription = atlas ? `${atlas.cityStatus} · generated city atlas` : 'Suggested · generated district atlas'
+  const otherCities: CitySelectionOption[] = [
+    { name: 'Berlin', description: 'Suggested · generated district atlas', badge: 'new', tone: 'new', enabled: false },
+    { name: 'Lisbon', description: 'Hills, miradouros, late cafés', badge: 'soon', tone: 'teal', enabled: false },
+    { name: 'Tokyo', description: 'Neighborhoods, stations, night walks', badge: 'soon', tone: 'purple', enabled: false },
+  ].filter((city) => city.name.toLowerCase() !== currentCityName.toLowerCase())
+  const cityOptions: CitySelectionOption[] = [
+    { name: currentCityName, description: currentCityDescription, badge: 'current', tone: 'new', enabled: true },
+    ...otherCities.slice(0, 2),
+  ]
 
   return (
-    <section className="atlas-city-detail-panel" aria-label={`${atlas.cityName} details`}>
-      <div className="atlas-city-detail-hero">
-        <span className="atlas-dummy-eyebrow">City profile</span>
-        <h2>{atlas.cityName}</h2>
-        <p>{atlas.cityCountry} · {atlas.cityStatus}</p>
+    <section className="atlas-city-selection-panel" aria-label="City selection">
+      <div className="atlas-city-selection-heading">
+        <div>
+          <h2>Choose a city</h2>
+          <p>Major cities first. Any place can become a generated atlas later.</p>
+        </div>
+        <button className="atlas-city-help" type="button" aria-label="City selection help">?</button>
       </div>
 
-      <div className="atlas-city-detail-grid">
-        <article>
-          <span>Location mode</span>
-          <strong>{mode === 'gps' ? 'GPS point' : 'Simulated point'}</strong>
-        </article>
-        <article>
-          <span>Current point</span>
-          <strong>{latitude}, {longitude}</strong>
-        </article>
-        <article>
-          <span>Boundary range</span>
-          <strong>{north} to {south}</strong>
-          <small>{west} to {east}</small>
-        </article>
-        <article>
-          <span>Map behavior</span>
-          <strong>Clear inside, muted outside</strong>
-        </article>
+      <div className="atlas-city-search" role="search">
+        <span>Search cities or districts</span>
+        <button type="button">Search</button>
       </div>
 
-      <button className="atlas-city-detail-back" type="button" onClick={onBack}>Back to map</button>
+      <div className="atlas-city-list">
+        {cityOptions.map((city) => (
+          <button
+            key={city.name}
+            className={`atlas-city-option ${city.tone}`}
+            type="button"
+            onClick={city.enabled ? onUseCurrentCity : undefined}
+            disabled={!city.enabled}
+          >
+            <span className="atlas-city-dot" aria-hidden="true" />
+            <span className="atlas-city-option-copy">
+              <strong>{city.name}</strong>
+              <small>{city.description}</small>
+            </span>
+            <em>{city.badge}</em>
+          </button>
+        ))}
+      </div>
+
+      <div className="atlas-nearby-section">
+        <strong>Nearby suggestions</strong>
+        <button type="button" onClick={onUseCurrentCity}>Use current city</button>
+      </div>
     </section>
   )
 }
@@ -408,7 +426,7 @@ function App() {
   const [mode, setMode] = useState<LocationMode>('simulated')
   const [activeTab, setActiveTab] = useState<AppTab>('atlas')
   const [activeAtlas, setActiveAtlas] = useState<BoundedAtlasPoint | null>(null)
-  const [isCityDetailOpen, setIsCityDetailOpen] = useState(false)
+  const [isCitySelectionOpen, setIsCitySelectionOpen] = useState(false)
   const [viewportSize, setViewportSize] = useState<ViewportSize>(() => getViewportSize())
   const [isLocating, setIsLocating] = useState(false)
   const [locationMessage, setLocationMessage] = useState('Stadtgrenze wird geladen...')
@@ -424,7 +442,7 @@ function App() {
     : 'empty-atlas'
   const activeTabItem = getAppTab(activeTab)
   const displayedTitle = activeTab === 'atlas' ? activeAtlas?.cityName ?? 'City' : activeTabItem.label
-  const shouldShowAtlasMap = activeTab === 'atlas' && !isCityDetailOpen
+  const shouldShowAtlasMap = activeTab === 'atlas' && !isCitySelectionOpen
 
   useEffect(() => {
     const updateViewportSize = () => {
@@ -501,13 +519,13 @@ function App() {
     setActiveTab(tab)
 
     if (tab !== 'atlas') {
-      setIsCityDetailOpen(false)
+      setIsCitySelectionOpen(false)
     }
   }
 
-  function openCityDetail() {
-    if (activeTab === 'atlas' && activeAtlas) {
-      setIsCityDetailOpen(true)
+  function openCitySelection() {
+    if (activeTab === 'atlas') {
+      setIsCitySelectionOpen(true)
     }
   }
 
@@ -539,28 +557,22 @@ function App() {
     <main className="atlas-core">
       <header className="atlas-header">
         <h1>
-          {activeTab === 'atlas' ? (
+          {activeTab === 'atlas' && !isCitySelectionOpen ? (
             <button
               className="atlas-city-title-button"
               type="button"
-              onClick={openCityDetail}
-              disabled={!activeAtlas}
-              aria-label={`Open ${displayedTitle} details`}
+              onClick={openCitySelection}
+              aria-label={`Open city selection for ${displayedTitle}`}
             >
               <span>{displayedTitle}</span>
-              <small>Details</small>
             </button>
-          ) : displayedTitle}
+          ) : activeTab === 'atlas' ? 'City Selection' : displayedTitle}
         </h1>
-        <div className="atlas-header-actions" aria-hidden="true">
-          <button className="atlas-icon-button" type="button">+</button>
-          <button className="atlas-icon-button" type="button">L</button>
-        </div>
       </header>
 
       {activeTab === 'atlas' ? (
-        activeAtlas && isCityDetailOpen ? (
-          <CityDetailPanel atlas={activeAtlas} mode={mode} onBack={() => setIsCityDetailOpen(false)} />
+        isCitySelectionOpen ? (
+          <CitySelectionPanel atlas={activeAtlas} onUseCurrentCity={() => setIsCitySelectionOpen(false)} />
         ) : activeAtlas ? (
           <div className="atlas-map-frame" style={mapFrameStyle}>
             <MapLibreCityMap key={mapKey} atlas={activeAtlas} mode={mode} viewAction={mapViewAction} />
