@@ -369,10 +369,11 @@ function MapLibreCityMap({ atlas, mode, viewAction }: { atlas: BoundedAtlasPoint
       const camera = defaultCameraRef.current ?? fitMapToCityDefault(map, atlas)
 
       map.easeTo({
+        bearing: 0,
         center: camera.center,
         duration: 450,
         essential: true,
-        pitch: map.getPitch(),
+        pitch: 0,
         zoom: camera.zoom,
       })
       return
@@ -655,8 +656,14 @@ function App() {
           <>
             <div className={mapFrameClassName} style={isMapFullscreen ? undefined : mapFrameStyle}>
               <MapLibreCityMap key={mapKey} atlas={activeAtlas} mode={mode} viewAction={mapViewAction} />
-              <div className="atlas-map-action-top" role="group" aria-label="Map default zoom control">
-                <button className="atlas-map-action-button" type="button" onClick={() => requestMapViewAction('default')}>Zoom</button>
+              <div
+                className="atlas-map-action-top"
+                role="group"
+                aria-label="Map reset and snap controls"
+                style={{ flexDirection: 'column' }}
+              >
+                <button className="atlas-map-action-button" type="button" onClick={() => requestMapViewAction('default')}>Reset</button>
+                <button className="atlas-map-action-button" type="button" onClick={() => requestMapViewAction('snap')}>Snap</button>
               </div>
               <div className="atlas-map-action-left" role="group" aria-label="Map fullscreen control">
                 <button
@@ -666,9 +673,6 @@ function App() {
                 >
                   {isMapFullscreen ? 'Min' : 'Max'}
                 </button>
-              </div>
-              <div className="atlas-map-action-bottom" role="group" aria-label="Map snap control">
-                <button className="atlas-map-action-button" type="button" onClick={() => requestMapViewAction('snap')}>Snap</button>
               </div>
             </div>
             <div className="atlas-joycon" role="group" aria-label="Move GPS location">
