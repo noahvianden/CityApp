@@ -479,28 +479,36 @@ function LockAtlasBounds({ bounds }: { bounds: GeoBounds }) {
   return null
 }
 
-function maskRingsFromBoundary(boundary: BoundaryGeometry) {
-  const boundaryRings = boundary.type === 'Polygon' ? boundary.coordinates : boundary.coordinates.flat()
+function boundaryRingsFromBoundary(boundary: BoundaryGeometry) {
+  return (boundary.type === 'Polygon' ? boundary.coordinates : boundary.coordinates.flat())
+    .map((ring) => ring.map(([longitude, latitude]) => [latitude, longitude] as [number, number]))
+}
 
-  return [
-    worldMaskRing,
-    ...boundaryRings.map((ring) => ring.map(([longitude, latitude]) => [latitude, longitude] as [number, number])),
-  ]
+function maskRingsFromBoundary(boundary: BoundaryGeometry) {
+  return [worldMaskRing, ...boundaryRingsFromBoundary(boundary)]
 }
 
 function BoundaryMaskLayer({ boundary }: { boundary: BoundaryGeometry }) {
   const map = useMap()
 
   useEffect(() => {
-    const maskLayer = L.polygon(maskRingsFromBoundary(boundary), {
-      color: '#d8e3da',
-      fillColor: '#d8e3da',
-      fillOpacity: 1,
+    const outsideCityLayer = L.polygon(maskRingsFromBoundary(boundary), {
+      color: 'transparent',
+      fillColor: '#eef2ee',
+      fillOpacity: 0.7,
       fillRule: 'evenodd',
       interactive: false,
       opacity: 0,
       stroke: false,
-    }).addTo(map)
+    })
+    const boundaryLayer = L.polyline(boundaryRingsFromBoundary(boundary), {
+      color: '#1d352b',
+      interactive: false,
+      opacity: 0.72,
+      smoothFactor: 0.4,
+      weight: 2,
+    })
+    const maskLayer = L.layerGroup([outsideCityLayer, boundaryLayer]).addTo(map)
 
     return () => {
       maskLayer.remove()
