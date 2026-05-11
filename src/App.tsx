@@ -340,7 +340,7 @@ function LockAtlasBounds({ bounds, point }: { bounds: GeoBounds; point: AtlasPoi
     ])
 
     const fillViewportWithCity = () => {
-      const coverZoom = map.getBoundsZoom(cityBounds, true, [0, 0])
+      const coverZoom = map.getBoundsZoom(cityBounds, true, L.point(0, 0))
       const focusPoint = L.latLng(point.latitude, point.longitude)
 
       map.setMaxBounds(cityBounds)
