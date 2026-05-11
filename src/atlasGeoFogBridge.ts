@@ -25,11 +25,16 @@ const boundarySourceId = 'atlas-boundary-source'
 const pointSourceId = 'atlas-point-source'
 const outsideMaskLayerId = 'atlas-outside-city-mask'
 const accuracyLayerId = 'atlas-accuracy-circle'
+const outlineLayerId = 'atlas-outline'
 const oldFogLayerId = 'atlas-fog-fill'
 const oldRevealLayerId = 'atlas-reveal-glow'
 const oldFogSourceId = 'atlas-fog-source'
 const oldRevealSourceId = 'atlas-reveal-source'
 const storagePrefix = 'cityapp:atlas-organic-fog:v1:'
+const fogColor = '#6f7472'
+const districtBoundaryColor = '#49b7a4'
+const cityOutlineColor = '#2f8f7f'
+const outsideAreaColor = '#0d3b2f'
 const revealRadiusMeters = 82
 const revealSpacingMeters = 10
 const maxRevealPoints = 3200
@@ -329,7 +334,7 @@ function drawFog(state: FogState) {
   bufferContext.save()
   drawBoundaryPath(bufferContext, state)
   bufferContext.clip('evenodd')
-  bufferContext.fillStyle = '#111715'
+  bufferContext.fillStyle = fogColor
   bufferContext.fillRect(0, 0, cssWidth, cssHeight)
   bufferContext.globalCompositeOperation = 'destination-out'
   state.points.forEach((point, index) => drawReveal(bufferContext, state, point, index))
@@ -372,10 +377,43 @@ function removeOldFog(map: MapInstance) {
   for (const id of [oldRevealSourceId, oldFogSourceId]) if (map.getSource(id)) map.removeSource(id)
 }
 
+function styleMapLayers(map: MapInstance) {
+  if (!map.isStyleLoaded()) return
+
+  if (map.getLayer(outsideMaskLayerId)) {
+    map.setPaintProperty(outsideMaskLayerId, 'fill-color', outsideAreaColor)
+    map.setPaintProperty(outsideMaskLayerId, 'fill-opacity', 0)
+  }
+
+  if (map.getLayer(outlineLayerId)) {
+    map.setPaintProperty(outlineLayerId, 'line-color', cityOutlineColor)
+    map.setPaintProperty(outlineLayerId, 'line-opacity', 0.9)
+    map.setPaintProperty(outlineLayerId, 'line-width', 2.2)
+  }
+
+  for (const layer of map.getStyle().layers ?? []) {
+    const candidate = layer as { id?: string, type?: string, source?: string, 'source-layer'?: string }
+    const isBoundaryLine = candidate.type === 'line' && candidate['source-layer'] === 'boundaries'
+    const isAdminLine = candidate.type === 'line' && Boolean(candidate.id?.startsWith('admin_'))
+
+    if (!candidate.id || (!isBoundaryLine && !isAdminLine) || !map.getLayer(candidate.id)) {
+      continue
+    }
+
+    try {
+      map.setPaintProperty(candidate.id, 'line-color', districtBoundaryColor)
+      map.setPaintProperty(candidate.id, 'line-opacity', ['interpolate', ['linear'], ['zoom'], 10, 0.25, 14, 0.7, 17, 0.95])
+    } catch {
+      // Some imported style layers have expressions that cannot be overridden on all renderers.
+    }
+  }
+}
+
 function updateState(state: FogState) {
   refreshCity(state)
   attachListeners(state)
   removeOldFog(state.map)
+  styleMapLayers(state.map)
   publish(state)
   requestDraw(state)
 }
@@ -454,7 +492,10 @@ function patchMapPrototype(prototype: PatchableMap) {
     const layer = args[0] as { id?: unknown, paint?: Record<string, unknown> }
     if (layer.id === accuracyLayerId || layer.id === oldRevealLayerId || layer.id === oldFogLayerId) return this
     if (layer.id === outsideMaskLayerId) {
-      layer.paint = { ...(layer.paint ?? {}), 'fill-color': '#8fa196', 'fill-opacity': 0.18 }
+      layer.paint = { ...(layer.paint ?? {}), 'fill-color': outsideAreaColor, 'fill-opacity': 0 }
+    }
+    if (layer.id === outlineLayerId) {
+      layer.paint = { ...(layer.paint ?? {}), 'line-color': cityOutlineColor, 'line-opacity': 0.9, 'line-width': 2.2 }
     }
     return originalAddLayer.apply(this, args)
   }
