@@ -83,11 +83,6 @@ type CitySearchCandidate = BoundedAtlasPoint & {
   placeType: string | undefined
 }
 
-const fallbackPoint: AtlasPoint = {
-  latitude: 53.5511,
-  longitude: 9.9937,
-}
-
 const citySearchSyllables = ['berg', 'burg', 'dorf', 'furt', 'hausen', 'heim', 'stadt', 'bach', 'feld', 'hagen', 'kirchen', 'weiler']
 const fallbackGermanCityQueries = ['Hamburg', 'Muenchen', 'Koeln', 'Frankfurt am Main', 'Dresden', 'Leipzig', 'Hannover']
 const nominatimBaseUrl = import.meta.env.DEV ? '/nominatim' : 'https://nominatim.openstreetmap.org'
