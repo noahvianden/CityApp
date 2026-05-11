@@ -330,7 +330,7 @@ async function getCurrentLocation() {
   return getBrowserCurrentLocation()
 }
 
-function LockAtlasBounds({ bounds, point }: { bounds: GeoBounds; point: AtlasPoint }) {
+function LockAtlasBounds({ bounds }: { bounds: GeoBounds }) {
   const map = useMap()
 
   useEffect(() => {
@@ -339,22 +339,27 @@ function LockAtlasBounds({ bounds, point }: { bounds: GeoBounds; point: AtlasPoi
       [bounds.north, bounds.east],
     ])
 
-    const fillViewportWithCity = () => {
-      const coverZoom = map.getBoundsZoom(cityBounds, true, L.point(0, 0))
-      const focusPoint = L.latLng(point.latitude, point.longitude)
+    const fitCityToTopEdge = () => {
+      map.setMaxBounds(cityBounds.pad(0.5))
+      map.fitBounds(cityBounds, {
+        animate: false,
+        padding: L.point(0, 0),
+      })
 
-      map.setMaxBounds(cityBounds)
-      map.setView(focusPoint, coverZoom, { animate: false })
-      map.panInsideBounds(cityBounds, { animate: false })
+      const topEdge = map.latLngToContainerPoint(cityBounds.getNorthWest()).y
+
+      if (Number.isFinite(topEdge) && topEdge > 0.5) {
+        map.panBy(L.point(0, topEdge), { animate: false })
+      }
     }
 
-    fillViewportWithCity()
-    map.on('resize', fillViewportWithCity)
+    fitCityToTopEdge()
+    map.on('resize', fitCityToTopEdge)
 
     return () => {
-      map.off('resize', fillViewportWithCity)
+      map.off('resize', fitCityToTopEdge)
     }
-  }, [bounds, map, point.latitude, point.longitude])
+  }, [bounds, map])
 
   return null
 }
@@ -464,7 +469,7 @@ function App() {
           attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>'
           url="https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png"
         />
-        <LockAtlasBounds bounds={activeBounds} point={activePoint} />
+        <LockAtlasBounds bounds={activeBounds} />
         <BoundaryMaskLayer boundary={activeBoundary} />
         {activePoint.accuracyM ? (
           <CircleMarker
