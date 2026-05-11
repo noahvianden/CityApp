@@ -14,39 +14,50 @@
   box-shadow: none;
 }
 
-.atlas-core::before {
-  content: 'Berlin';
+.atlas-header {
   position: absolute;
-  top: 52px;
+  top: 51px;
   left: 17px;
+  right: 13px;
   z-index: 40;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.atlas-header h1 {
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
   color: #2a2824;
   font-size: 25px;
   font-weight: 900;
   line-height: 1;
   letter-spacing: -0.05em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.atlas-core::after {
-  content: 'A\A Atlas\A\A        M\A        Memories\A\A                S\A                Stats\A\A                        P\A                        Privacy';
-  white-space: pre;
-  position: absolute;
-  left: 17px;
-  right: 17px;
-  bottom: 16px;
-  z-index: 30;
-  height: 60px;
-  border: 1px solid rgba(66, 47, 25, 0.08);
-  border-radius: 19px;
-  background: rgba(255, 253, 247, 0.86);
-  box-shadow: 0 12px 28px rgba(54, 42, 28, 0.06);
-  color: rgba(42, 40, 36, 0.62);
-  font-size: 9px;
-  font-weight: 800;
-  line-height: 12px;
-  text-align: left;
-  padding: 10px 25px;
-  pointer-events: none;
+.atlas-header-actions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 10px;
+}
+
+.atlas-icon-button {
+  display: grid;
+  width: 37px;
+  height: 37px;
+  place-items: center;
+  border: 1px solid rgba(58, 38, 16, 0.12);
+  border-radius: 13px;
+  background: rgba(255, 253, 247, 0.78);
+  color: #2a2824;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 900;
 }
 
 .atlas-map-frame,
@@ -92,37 +103,8 @@
   border-radius: 24px;
 }
 
-.atlas-city-badge {
-  position: absolute;
-  top: 12px;
-  left: 14px;
-  z-index: 20;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 145px;
-  min-height: 24px;
-  padding: 0 12px;
-  border: 0;
-  border-radius: 999px;
-  background: rgba(255, 253, 247, 0.86);
-  color: rgba(42, 40, 36, 0.68);
-  box-shadow: none;
-  backdrop-filter: blur(10px) saturate(1.05);
-  pointer-events: none;
-}
-
-.atlas-city-name {
-  overflow: hidden;
-  max-width: 100%;
-  font-size: 9px;
-  font-weight: 800;
-  letter-spacing: 0;
-  line-height: 1;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
+.atlas-city-badge,
+.atlas-city-name,
 .atlas-city-meta {
   display: none;
 }
@@ -179,4 +161,57 @@
 
 .atlas-control.active:not(:first-child) {
   background: rgba(255, 253, 247, 0.88);
+}
+
+.atlas-tabbar {
+  position: absolute;
+  left: 17px;
+  right: 17px;
+  bottom: 16px;
+  z-index: 50;
+  display: grid;
+  height: 60px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  align-items: center;
+  gap: 0;
+  padding: 8px;
+  border: 1px solid rgba(66, 47, 25, 0.08);
+  border-radius: 19px;
+  background: rgba(255, 253, 247, 0.86);
+  box-shadow: 0 12px 28px rgba(54, 42, 28, 0.06);
+}
+
+.atlas-tab {
+  display: grid;
+  height: 44px;
+  min-width: 0;
+  place-items: center;
+  gap: 1px;
+  border: 0;
+  border-radius: 13px;
+  background: transparent;
+  color: rgba(42, 40, 36, 0.62);
+  font: inherit;
+  padding: 5px 4px;
+}
+
+.atlas-tab strong {
+  font-size: 11px;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.atlas-tab span {
+  overflow: hidden;
+  max-width: 100%;
+  font-size: 8px;
+  font-weight: 800;
+  line-height: 1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.atlas-tab.active {
+  background: #28241f;
+  color: #fffaf1;
 }
