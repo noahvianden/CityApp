@@ -8,6 +8,7 @@ import type { GpsLocationSample } from './locationAdapter'
 
 type LocationMode = 'gps' | 'simulated'
 type AppTab = 'atlas' | 'memories' | 'stats' | 'privacy'
+type GpsNudgeDirection = 'north' | 'east' | 'south' | 'west'
 
 type AppTabItem = {
   key: AppTab
@@ -74,6 +75,10 @@ const appTabs: AppTabItem[] = [
 
 function getAppTab(tab: AppTab) {
   return appTabs.find((item) => item.key === tab) ?? appTabs[0]
+}
+
+function clamp(value: number, min: number, max: number) {
+  return Math.min(Math.max(value, min), max)
 }
 
 function getViewportSize(): ViewportSize {
@@ -455,6 +460,29 @@ function App() {
     }
   }
 
+  function nudgeGpsLocation(direction: GpsNudgeDirection) {
+    setMode('gps')
+    setActiveAtlas((currentAtlas) => {
+      if (!currentAtlas) {
+        return currentAtlas
+      }
+
+      const latitudeStep = Math.max((currentAtlas.bounds.north - currentAtlas.bounds.south) * 0.025, 0.00025)
+      const longitudeStep = Math.max((currentAtlas.bounds.east - currentAtlas.bounds.west) * 0.025, 0.00025)
+      const latitudeOffset = direction === 'north' ? latitudeStep : direction === 'south' ? -latitudeStep : 0
+      const longitudeOffset = direction === 'east' ? longitudeStep : direction === 'west' ? -longitudeStep : 0
+
+      return {
+        ...currentAtlas,
+        point: {
+          ...currentAtlas.point,
+          latitude: clamp(currentAtlas.point.latitude + latitudeOffset, currentAtlas.bounds.south, currentAtlas.bounds.north),
+          longitude: clamp(currentAtlas.point.longitude + longitudeOffset, currentAtlas.bounds.west, currentAtlas.bounds.east),
+        },
+      }
+    })
+  }
+
   return (
     <main className="atlas-core">
       <header className="atlas-header">
@@ -501,6 +529,16 @@ function App() {
             <Route size={20} aria-hidden="true" />
             <span>Simulated</span>
           </button>
+        </div>
+      ) : null}
+
+      {activeTab === 'atlas' && activeAtlas ? (
+        <div className="atlas-joycon" role="group" aria-label="Move GPS location">
+          <button className="atlas-joycon-button north" type="button" onClick={() => nudgeGpsLocation('north')} aria-label="Move GPS north">↑</button>
+          <button className="atlas-joycon-button west" type="button" onClick={() => nudgeGpsLocation('west')} aria-label="Move GPS west">←</button>
+          <span className="atlas-joycon-center" aria-hidden="true" />
+          <button className="atlas-joycon-button east" type="button" onClick={() => nudgeGpsLocation('east')} aria-label="Move GPS east">→</button>
+          <button className="atlas-joycon-button south" type="button" onClick={() => nudgeGpsLocation('south')} aria-label="Move GPS south">↓</button>
         </div>
       ) : null}
 
