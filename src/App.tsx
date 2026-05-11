@@ -40,16 +40,20 @@ type ViewportSize = {
   height: number
 }
 
+type MapCamera = {
+  center: [number, number]
+  zoom: number
+}
+
 type UpdatableGeoJsonSource = {
   setData: (data: MapLibrePointFeature) => void
 }
 
-type CitySelectionOption = {
+type CityHistoryItem = {
+  cityId: string
   name: string
   description: string
   badge: string
-  tone: 'new' | 'teal' | 'purple'
-  enabled: boolean
 }
 
 const cityStyleUrl = `${import.meta.env.BASE_URL}city-style.json`
@@ -196,23 +200,23 @@ function centerMapOnPoint(map: import('maplibre-gl').Map, point: AtlasPoint, dur
   })
 }
 
-function resetMapToCityDefault(map: import('maplibre-gl').Map, atlas: BoundedAtlasPoint, animate = true) {
+function fitMapToCityDefault(map: import('maplibre-gl').Map, atlas: BoundedAtlasPoint): MapCamera {
   map.fitBounds(cityBoundsFromAtlas(atlas), {
-    animate,
-    duration: animate ? 450 : 0,
+    animate: false,
     padding: 0,
   })
-  map.easeTo({
-    bearing: 0,
-    duration: animate ? 450 : 0,
-    essential: true,
-    pitch: 0,
-  })
+  const center = map.getCenter()
+
+  return {
+    center: [center.lng, center.lat],
+    zoom: map.getZoom(),
+  }
 }
 
 function MapLibreCityMap({ atlas, mode, viewAction }: { atlas: BoundedAtlasPoint, mode: LocationMode, viewAction: MapViewAction | null }) {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const mapRef = useRef<import('maplibre-gl').Map | null>(null)
+  const defaultCameraRef = useRef<MapCamera | null>(null)
   const latestAtlasRef = useRef(atlas)
   const latestModeRef = useRef(mode)
   const handledViewActionNonce = useRef<number | null>(null)
@@ -321,7 +325,9 @@ function MapLibreCityMap({ atlas, mode, viewAction }: { atlas: BoundedAtlasPoint
           paint: { 'text-color': '#ffffff', 'text-halo-blur': 0.5, 'text-halo-color': '#1d352b', 'text-halo-width': 1.25 },
         })
 
-        resetMapToCityDefault(map, initialAtlas, false)
+        defaultCameraRef.current = fitMapToCityDefault(map, initialAtlas)
+        map.setBearing(0)
+        map.setPitch(0)
         map.setMaxBounds(cityBoundsFromAtlas(initialAtlas))
         map.setMinZoom(map.getZoom())
       })
@@ -330,6 +336,7 @@ function MapLibreCityMap({ atlas, mode, viewAction }: { atlas: BoundedAtlasPoint
     return () => {
       cancelled = true
       resizeObserver?.disconnect()
+      defaultCameraRef.current = null
       mapRef.current = null
       map?.remove()
     }
@@ -356,7 +363,15 @@ function MapLibreCityMap({ atlas, mode, viewAction }: { atlas: BoundedAtlasPoint
     handledViewActionNonce.current = viewAction.nonce
 
     if (viewAction.type === 'default') {
-      resetMapToCityDefault(map, atlas)
+      const camera = defaultCameraRef.current ?? fitMapToCityDefault(map, atlas)
+
+      map.easeTo({
+        center: camera.center,
+        duration: 450,
+        essential: true,
+        pitch: map.getPitch(),
+        zoom: camera.zoom,
+      })
       return
     }
 
@@ -387,45 +402,22 @@ function DummyPanel({ tab }: { tab: AppTabItem }) {
   )
 }
 
-function CitySelectionPanel({ atlas, onUseCurrentCity }: { atlas: BoundedAtlasPoint | null, onUseCurrentCity: () => void }) {
-  const currentCityName = atlas?.cityName ?? 'Berlin'
-  const currentCityDescription = atlas ? `${atlas.cityStatus} · generated city atlas` : 'Suggested · generated district atlas'
-  const otherCities = ([
-	  { name: 'Berlin', description: 'Suggested · generated district atlas', badge: 'new', tone: 'new', enabled: false },
-	  { name: 'Lisbon', description: 'Hills, miradouros, late cafés', badge: 'soon', tone: 'teal', enabled: false },
-	  { name: 'Tokyo', description: 'Neighborhoods, stations, night walks', badge: 'soon', tone: 'purple', enabled: false },
-	] satisfies CitySelectionOption[]).filter(
-	  (city) => city.name.toLowerCase() !== currentCityName.toLowerCase(),
-	)
-  const cityOptions: CitySelectionOption[] = [
-    { name: currentCityName, description: currentCityDescription, badge: 'current', tone: 'new', enabled: true },
-    ...otherCities.slice(0, 2),
-  ]
-
+function CitySelectionPanel({ history, onSearchClick, onUseCurrentCity }: { history: CityHistoryItem[], onSearchClick: () => void, onUseCurrentCity: () => void }) {
   return (
     <section className="atlas-city-selection-panel" aria-label="City selection">
       <div className="atlas-city-selection-heading">
-        <div>
-          <h2>Choose a city</h2>
-          <p>Major cities first. Any place can become a generated atlas later.</p>
-        </div>
-        <button className="atlas-city-help" type="button" aria-label="City selection help">?</button>
+        <h2>Choose a city</h2>
+        <p>Major cities first. Any place can become a generated atlas later.</p>
       </div>
 
-      <div className="atlas-city-search" role="search">
+      <button className="atlas-city-search" type="button" onClick={onSearchClick} aria-label="Search cities or districts">
         <span>Search cities or districts</span>
-        <button type="button">Search</button>
-      </div>
+        <strong>Search</strong>
+      </button>
 
-      <div className="atlas-city-list">
-        {cityOptions.map((city) => (
-          <button
-            key={city.name}
-            className={`atlas-city-option ${city.tone}`}
-            type="button"
-            onClick={city.enabled ? onUseCurrentCity : undefined}
-            disabled={!city.enabled}
-          >
+      <div className="atlas-city-list" aria-label="City history">
+        {history.length ? history.map((city) => (
+          <button key={city.cityId} className="atlas-city-option" type="button" onClick={onUseCurrentCity}>
             <span className="atlas-city-dot" aria-hidden="true" />
             <span className="atlas-city-option-copy">
               <strong>{city.name}</strong>
@@ -433,7 +425,12 @@ function CitySelectionPanel({ atlas, onUseCurrentCity }: { atlas: BoundedAtlasPo
             </span>
             <em>{city.badge}</em>
           </button>
-        ))}
+        )) : (
+          <div className="atlas-city-empty-history">
+            <strong>No city history yet</strong>
+            <span>Use GPS or Simulated to add a city here. Search results will appear here later.</span>
+          </div>
+        )}
       </div>
 
       <div className="atlas-nearby-section">
@@ -448,6 +445,7 @@ function App() {
   const [mode, setMode] = useState<LocationMode>('simulated')
   const [activeTab, setActiveTab] = useState<AppTab>('atlas')
   const [activeAtlas, setActiveAtlas] = useState<BoundedAtlasPoint | null>(null)
+  const [cityHistory, setCityHistory] = useState<CityHistoryItem[]>([])
   const [isCitySelectionOpen, setIsCitySelectionOpen] = useState(false)
   const [viewportSize, setViewportSize] = useState<ViewportSize>(() => getViewportSize())
   const [isLocating, setIsLocating] = useState(false)
@@ -490,6 +488,20 @@ function App() {
     void activateSimulatedLocation()
   }, [])
 
+  function rememberAtlasCity(atlas: BoundedAtlasPoint, badge: string) {
+    setCityHistory((currentHistory) => {
+      const nextCity = {
+        cityId: atlas.cityId,
+        name: atlas.cityName,
+        description: `${atlas.cityStatus} · generated city atlas`,
+        badge,
+      }
+      const withoutDuplicate = currentHistory.filter((city) => city.cityId !== atlas.cityId)
+
+      return [nextCity, ...withoutDuplicate].slice(0, 8)
+    })
+  }
+
   async function activateSimulatedLocation() {
     setMode('simulated')
     setIsLocating(true)
@@ -500,6 +512,7 @@ function App() {
 
       if (simulated) {
         setActiveAtlas(simulated)
+        rememberAtlasCity(simulated, 'simulated')
       } else {
         setLocationMessage('Keine Stadtgrenze gefunden. Bitte erneut versuchen.')
       }
@@ -522,6 +535,7 @@ function App() {
 
         if (nextBoundary) {
           setActiveAtlas(nextBoundary)
+          rememberAtlasCity(nextBoundary, 'gps')
         } else {
           setLocationMessage('Fuer diesen GPS-Punkt wurde keine Stadtgrenze gefunden.')
         }
@@ -577,24 +591,30 @@ function App() {
 
   return (
     <main className="atlas-core">
-      <header className="atlas-header">
-        <h1>
-          {activeTab === 'atlas' && !isCitySelectionOpen ? (
-            <button
-              className="atlas-city-title-button"
-              type="button"
-              onClick={openCitySelection}
-              aria-label={`Open city selection for ${displayedTitle}`}
-            >
-              <span>{displayedTitle}</span>
-            </button>
-          ) : activeTab === 'atlas' ? 'City Selection' : displayedTitle}
-        </h1>
-      </header>
+      {!isCitySelectionOpen ? (
+        <header className="atlas-header">
+          <h1>
+            {activeTab === 'atlas' ? (
+              <button
+                className="atlas-city-title-button"
+                type="button"
+                onClick={openCitySelection}
+                aria-label={`Open city selection for ${displayedTitle}`}
+              >
+                <span>{displayedTitle}</span>
+              </button>
+            ) : displayedTitle}
+          </h1>
+        </header>
+      ) : null}
 
       {activeTab === 'atlas' ? (
         isCitySelectionOpen ? (
-          <CitySelectionPanel atlas={activeAtlas} onUseCurrentCity={() => setIsCitySelectionOpen(false)} />
+          <CitySelectionPanel
+            history={cityHistory}
+            onSearchClick={() => undefined}
+            onUseCurrentCity={() => setIsCitySelectionOpen(false)}
+          />
         ) : activeAtlas ? (
           <>
             <div className="atlas-map-frame" style={mapFrameStyle}>
