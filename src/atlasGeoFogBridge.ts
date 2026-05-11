@@ -11,6 +11,10 @@ type Feature<TGeometry> = { type: 'Feature', geometry: TGeometry, properties: Re
 type FeatureCollection<TGeometry> = { type: 'FeatureCollection', features: Array<Feature<TGeometry>> }
 type GeoBounds = { west: number, south: number, east: number, north: number }
 type RevealPoint = { lng: number, lat: number, revealedAt: number }
+type BoundaryPolygon = {
+  outer: LinearRing
+  holes: LinearRing[]
+}
 
 type AtlasFogSnapshot = {
   cityKey: string | null
@@ -24,6 +28,7 @@ type FogMapState = {
   map: MapInstance
   bounds: GeoBounds | null
   cityKey: string | null
+  boundaryPolygons: BoundaryPolygon[] | null
   revealPoints: RevealPoint[]
   progress: number
   fogCells: number
@@ -47,8 +52,7 @@ const atlasOutsideMaskLayerId = 'atlas-outside-city-mask'
 const storagePrefix = 'cityapp:atlas-geo-fog-grid-v2:'
 const revealRadiusMeters = 520
 const revealSpacingMeters = 32
-const fogGridColumns = 46
-const fogGridRows = 46
+const revealHoleSegments = 24
 
 const mapStates = new WeakMap<MapInstance, FogMapState>()
 const listeners = new Set<(snapshot: AtlasFogSnapshot) => void>()
@@ -74,6 +78,7 @@ function getOrCreateMapState(map: MapInstance) {
     map,
     bounds: null,
     cityKey: null,
+    boundaryPolygons: null,
     revealPoints: [],
     progress: 0,
     fogCells: 0,
@@ -117,6 +122,52 @@ function extractBoundsFromSource(source: unknown): GeoBounds | null {
   return [west, south, east, north].every(Number.isFinite) && west < east && south < north
     ? { west, south, east, north }
     : null
+}
+
+function isLinearRing(value: unknown): value is LinearRing {
+  return Array.isArray(value)
+    && value.length >= 4
+    && value.every((coordinate) => isCoordinate(coordinate))
+}
+
+function cloneRing(ring: LinearRing) {
+  return ring.map(([lng, lat]) => [lng, lat] as Coordinate)
+}
+
+function extractBoundaryPolygonsFromSource(source: unknown) {
+  const data = (source as { data?: unknown })?.data
+  const geometry = (data as { geometry?: { type?: unknown, coordinates?: unknown } })?.geometry ?? data
+  const geometryType = (geometry as { type?: unknown })?.type
+  const coordinates = (geometry as { coordinates?: unknown })?.coordinates
+
+  const polygonCoordinates = geometryType === 'Polygon'
+    ? [coordinates]
+    : geometryType === 'MultiPolygon'
+      ? coordinates
+      : null
+
+  if (!polygonCoordinates || !Array.isArray(polygonCoordinates)) {
+    return null
+  }
+
+  const polygons = polygonCoordinates.flatMap((polygon) => {
+    if (!Array.isArray(polygon) || polygon.length === 0) {
+      return []
+    }
+
+    const rings = polygon.filter(isLinearRing)
+
+    if (rings.length === 0) {
+      return []
+    }
+
+    return [{
+      outer: cloneRing(rings[0]),
+      holes: rings.slice(1).map(cloneRing),
+    }]
+  })
+
+  return polygons.length ? polygons : null
 }
 
 function normalizeBounds(value: unknown): GeoBounds | null {
@@ -188,6 +239,43 @@ function refreshCityKey(state: FogMapState) {
   state.revealPoints = loadRevealPoints(nextCityKey)
 }
 
+function pointInRing(point: { lng: number, lat: number }, ring: LinearRing) {
+  let inside = false
+
+  for (let index = 0, previous = ring.length - 1; index < ring.length; previous = index, index += 1) {
+    const current = ring[index]
+    const prior = ring[previous]
+    const intersects = (current[1] > point.lat) !== (prior[1] > point.lat)
+      && point.lng < ((prior[0] - current[0]) * (point.lat - current[1])) / ((prior[1] - current[1]) || Number.EPSILON) + current[0]
+
+    if (intersects) {
+      inside = !inside
+    }
+  }
+
+  return inside
+}
+
+function createRevealHole(point: { lng: number, lat: number }) {
+  const latitudeRadians = point.lat * Math.PI / 180
+  const metersPerLongitudeDegree = 111_320 * Math.max(Math.cos(latitudeRadians), 0.2)
+  const latRadius = revealRadiusMeters / 111_320
+  const lngRadius = revealRadiusMeters / metersPerLongitudeDegree
+  const coordinates: LinearRing = []
+
+  for (let segment = 0; segment < revealHoleSegments; segment += 1) {
+    const angle = (segment / revealHoleSegments) * Math.PI * 2
+    coordinates.push([
+      point.lng + Math.cos(angle) * lngRadius,
+      point.lat + Math.sin(angle) * latRadius,
+    ])
+  }
+
+  coordinates.push(coordinates[0])
+
+  return coordinates
+}
+
 function metersBetween(a: { lng: number, lat: number }, b: { lng: number, lat: number }) {
   const earthRadiusMeters = 6_371_000
   const deltaLat = (b.lat - a.lat) * Math.PI / 180
@@ -213,51 +301,47 @@ function pointIsRevealed(state: FogMapState, point: { lng: number, lat: number }
   return state.revealPoints.some((revealPoint) => metersBetween(revealPoint, point) <= revealRadiusMeters)
 }
 
-function createFogCellGeometry(west: number, south: number, east: number, north: number): PolygonGeometry {
-  return {
-    type: 'Polygon',
-    coordinates: [[
-      [west, south],
-      [east, south],
-      [east, north],
-      [west, north],
-      [west, south],
-    ]],
-  }
-}
-
 function createEmptyFogFeatureCollection(): FeatureCollection<PolygonGeometry> {
   return { type: 'FeatureCollection', features: [] }
 }
 
-function createFogFeatureCollection(state: FogMapState): FeatureCollection<PolygonGeometry> {
+export function createFogFeatureCollection(state: FogMapState): FeatureCollection<PolygonGeometry> {
   if (!state.bounds) {
     state.fogCells = 0
     return createEmptyFogFeatureCollection()
   }
 
+  const basePolygons: BoundaryPolygon[] = state.boundaryPolygons?.length
+    ? state.boundaryPolygons
+    : [{
+        outer: [
+          [state.bounds.west, state.bounds.south],
+          [state.bounds.east, state.bounds.south],
+          [state.bounds.east, state.bounds.north],
+          [state.bounds.west, state.bounds.north],
+          [state.bounds.west, state.bounds.south],
+        ],
+        holes: [],
+      }]
   const features: Array<Feature<PolygonGeometry>> = []
-  const cellWidth = (state.bounds.east - state.bounds.west) / fogGridColumns
-  const cellHeight = (state.bounds.north - state.bounds.south) / fogGridRows
 
-  for (let row = 0; row < fogGridRows; row += 1) {
-    for (let column = 0; column < fogGridColumns; column += 1) {
-      const west = state.bounds.west + column * cellWidth
-      const east = west + cellWidth
-      const south = state.bounds.south + row * cellHeight
-      const north = south + cellHeight
-      const center = { lng: west + cellWidth / 2, lat: south + cellHeight / 2 }
+  for (const polygon of basePolygons) {
+    const holes = polygon.holes.map(cloneRing)
 
-      if (pointIsRevealed(state, center)) {
-        continue
+    for (const revealPoint of state.revealPoints) {
+      if (pointInRing(revealPoint, polygon.outer)) {
+        holes.push(createRevealHole(revealPoint))
       }
-
-      features.push({
-        type: 'Feature',
-        geometry: createFogCellGeometry(west, south, east, north),
-        properties: { cell: `${column}:${row}` },
-      })
     }
+
+    features.push({
+      type: 'Feature',
+      geometry: {
+        type: 'Polygon',
+        coordinates: [cloneRing(polygon.outer), ...holes],
+      },
+      properties: { polygon: 'boundary' },
+    })
   }
 
   state.fogCells = features.length
@@ -433,9 +517,10 @@ function handleSourceAdded(map: MapInstance, sourceId: string, source: AddSource
 
   if (sourceId === atlasBoundarySourceId) {
     state.bounds = extractBoundsFromSource(source) ?? state.bounds
+    state.boundaryPolygons = extractBoundaryPolygonsFromSource(source) ?? state.boundaryPolygons
     refreshCityKey(state)
     ensureFogLayers(map)
-    logAtlasFog('boundary ready', { cityKey: state.cityKey, hasBounds: Boolean(state.bounds), fogCells: state.fogCells })
+    logAtlasFog('boundary ready', { cityKey: state.cityKey, hasBounds: Boolean(state.bounds), fogCells: state.fogCells, boundaryPolygons: state.boundaryPolygons?.length ?? 0 })
     return
   }
 
