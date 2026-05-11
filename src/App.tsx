@@ -447,6 +447,7 @@ function App() {
   const [activeAtlas, setActiveAtlas] = useState<BoundedAtlasPoint | null>(null)
   const [cityHistory, setCityHistory] = useState<CityHistoryItem[]>([])
   const [isCitySelectionOpen, setIsCitySelectionOpen] = useState(false)
+  const [isMapFullscreen, setIsMapFullscreen] = useState(false)
   const [viewportSize, setViewportSize] = useState<ViewportSize>(() => getViewportSize())
   const [isLocating, setIsLocating] = useState(false)
   const [locationMessage, setLocationMessage] = useState('Stadtgrenze wird geladen...')
@@ -463,6 +464,7 @@ function App() {
   const activeTabItem = getAppTab(activeTab)
   const displayedTitle = activeTab === 'atlas' ? activeAtlas?.cityName ?? 'City' : activeTabItem.label
   const shouldShowAtlasMap = activeTab === 'atlas' && !isCitySelectionOpen
+  const mapFrameClassName = isMapFullscreen ? 'atlas-map-frame fullscreen' : 'atlas-map-frame'
 
   useEffect(() => {
     const updateViewportSize = () => {
@@ -556,11 +558,13 @@ function App() {
 
     if (tab !== 'atlas') {
       setIsCitySelectionOpen(false)
+      setIsMapFullscreen(false)
     }
   }
 
   function openCitySelection() {
     if (activeTab === 'atlas') {
+      setIsMapFullscreen(false)
       setIsCitySelectionOpen(true)
     }
   }
@@ -617,10 +621,17 @@ function App() {
           />
         ) : activeAtlas ? (
           <>
-            <div className="atlas-map-frame" style={mapFrameStyle}>
+            <div className={mapFrameClassName} style={isMapFullscreen ? undefined : mapFrameStyle}>
               <MapLibreCityMap key={mapKey} atlas={activeAtlas} mode={mode} viewAction={mapViewAction} />
-              <div className="atlas-map-action-top" role="group" aria-label="Map default zoom control">
+              <div className="atlas-map-action-top" role="group" aria-label="Map default zoom and fullscreen controls">
                 <button className="atlas-map-action-button" type="button" onClick={() => requestMapViewAction('default')}>Zoom</button>
+                <button
+                  className="atlas-map-action-button"
+                  type="button"
+                  onClick={() => setIsMapFullscreen((current) => !current)}
+                >
+                  {isMapFullscreen ? 'Min' : 'Max'}
+                </button>
               </div>
               <div className="atlas-map-action-bottom" role="group" aria-label="Map snap control">
                 <button className="atlas-map-action-button" type="button" onClick={() => requestMapViewAction('snap')}>Snap</button>
