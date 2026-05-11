@@ -1,16 +1,20 @@
 type MapInstance = import('maplibre-gl').Map
-type AddLayerArgs = Parameters<MapInstance['addLayer']>
 type AddSourceArgs = Parameters<MapInstance['addSource']>
 type SetMaxBoundsArgs = Parameters<MapInstance['setMaxBounds']>
 
 type Coordinate = [number, number]
 type LinearRing = Coordinate[]
 type PolygonGeometry = { type: 'Polygon', coordinates: LinearRing[] }
-type PointGeometry = { type: 'Point', coordinates: Coordinate }
-type Feature<TGeometry> = { type: 'Feature', geometry: TGeometry, properties: Record<string, unknown> }
-type FeatureCollection<TGeometry> = { type: 'FeatureCollection', features: Array<Feature<TGeometry>> }
+type MultiPolygonGeometry = { type: 'MultiPolygon', coordinates: LinearRing[][] }
+type BoundaryGeometry = PolygonGeometry | MultiPolygonGeometry
 type GeoBounds = { west: number, south: number, east: number, north: number }
-type RevealPoint = { lng: number, lat: number, revealedAt: number }
+
+type RevealPoint = {
+  lng: number
+  lat: number
+  radiusM: number
+  revealedAt: number
+}
 
 type AtlasFogSnapshot = {
   cityKey: string | null
@@ -18,43 +22,52 @@ type AtlasFogSnapshot = {
   revealedPoints: number
 }
 
-type UpdatableGeoJsonSource = { setData: (data: unknown) => void }
-type AtlasPointSource = UpdatableGeoJsonSource & { __atlasFogWrapped?: boolean }
+type UpdatableGeoJsonSource = {
+  setData: (data: unknown) => void
+}
+
+type AtlasPointSource = UpdatableGeoJsonSource & {
+  __atlasFogWrapped?: boolean
+}
+
 type EventedMap = MapInstance & {
-  once: (event: string, listener: () => void) => MapInstance
+  on: (event: string, listener: () => void) => MapInstance
+  off: (event: string, listener: () => void) => MapInstance
 }
 
 type FogMapState = {
   map: MapInstance
+  boundary: BoundaryGeometry | null
   bounds: GeoBounds | null
   cityKey: string | null
   revealPoints: RevealPoint[]
+  lastRevealCenter: { lng: number, lat: number } | null
   progress: number
-  fogCells: number
-  isStyleRetryScheduled: boolean
-  retryTimer: number | null
+  canvas: HTMLCanvasElement | null
+  redrawFrame: number | null
+  listenersAttached: boolean
+  redrawListener: (() => void) | null
 }
 
 type PatchableMapPrototype = {
   __atlasFogPatched?: boolean
-  addLayer: MapInstance['addLayer']
   addSource: MapInstance['addSource']
   remove: MapInstance['remove']
   setMaxBounds: MapInstance['setMaxBounds']
 }
 
-const fogSourceId = 'atlas-fog-source'
-const revealSourceId = 'atlas-reveal-source'
-const fogLayerId = 'atlas-fog-fill'
-const revealLayerId = 'atlas-reveal-glow'
 const atlasBoundarySourceId = 'atlas-boundary-source'
 const atlasPointSourceId = 'atlas-point-source'
-const atlasOutsideMaskLayerId = 'atlas-outside-city-mask'
-const storagePrefix = 'cityapp:atlas-geo-fog-grid-v3:'
-const revealRadiusMeters = 520
-const revealSpacingMeters = 32
-const fogGridColumns = 46
-const fogGridRows = 46
+const oldFogLayerId = 'atlas-fog-fill'
+const oldRevealLayerId = 'atlas-reveal-glow'
+const oldFogSourceId = 'atlas-fog-source'
+const oldRevealSourceId = 'atlas-reveal-source'
+const storagePrefix = 'cityapp:atlas-organic-fog:v1:'
+const revealRadiusMeters = 82
+const revealSpacingMeters = 10
+const maxRevealPoints = 3200
+const progressColumns = 36
+const progressRows = 36
 
 const mapStates = new WeakMap<MapInstance, FogMapState>()
 const listeners = new Set<(snapshot: AtlasFogSnapshot) => void>()
@@ -69,71 +82,92 @@ function isCoordinate(value: unknown): value is Coordinate {
   return Array.isArray(value) && value.length >= 2 && isFiniteNumber(value[0]) && isFiniteNumber(value[1])
 }
 
-function getOrCreateMapState(map: MapInstance) {
-  const existing = mapStates.get(map)
-
-  if (existing) {
-    return existing
+function normalizeRing(value: unknown): LinearRing | null {
+  if (!Array.isArray(value)) {
+    return null
   }
 
-  const state: FogMapState = {
-    map,
-    bounds: null,
-    cityKey: null,
-    revealPoints: [],
-    progress: 0,
-    fogCells: 0,
-    isStyleRetryScheduled: false,
-    retryTimer: null,
-  }
-  mapStates.set(map, state)
+  const coordinates = value
+    .filter(isCoordinate)
+    .map((coordinate) => [coordinate[0], coordinate[1]] as Coordinate)
 
-  return state
+  if (coordinates.length < 4) {
+    return null
+  }
+
+  const [firstLng, firstLat] = coordinates[0]
+  const [lastLng, lastLat] = coordinates[coordinates.length - 1]
+
+  if (firstLng !== lastLng || firstLat !== lastLat) {
+    coordinates.push([firstLng, firstLat])
+  }
+
+  return coordinates
 }
 
-function visitCoordinates(value: unknown, visit: (coordinate: Coordinate) => void) {
-  if (isCoordinate(value)) {
-    visit([value[0], value[1]])
-    return
+function normalizePolygon(value: unknown): LinearRing[] | null {
+  if (!Array.isArray(value)) {
+    return null
   }
 
-  if (Array.isArray(value)) {
-    value.forEach((entry) => visitCoordinates(entry, visit))
-    return
-  }
+  const rings = value
+    .map(normalizeRing)
+    .filter((ring): ring is LinearRing => ring !== null)
 
+  return rings.length ? rings : null
+}
+
+function normalizeBoundary(value: unknown): BoundaryGeometry | null {
   if (!value || typeof value !== 'object') {
-    return
+    return null
   }
 
-  const candidate = value as { coordinates?: unknown, geometry?: unknown, features?: unknown }
+  const geometry = value as { type?: unknown, coordinates?: unknown }
 
-  if (candidate.coordinates) {
-    visitCoordinates(candidate.coordinates, visit)
+  if (geometry.type === 'Polygon') {
+    const polygon = normalizePolygon(geometry.coordinates)
+    return polygon ? { type: 'Polygon', coordinates: polygon } : null
   }
 
-  if (candidate.geometry) {
-    visitCoordinates(candidate.geometry, visit)
+  if (geometry.type === 'MultiPolygon' && Array.isArray(geometry.coordinates)) {
+    const polygons = geometry.coordinates
+      .map(normalizePolygon)
+      .filter((polygon): polygon is LinearRing[] => polygon !== null)
+
+    return polygons.length ? { type: 'MultiPolygon', coordinates: polygons } : null
   }
 
-  if (candidate.features) {
-    visitCoordinates(candidate.features, visit)
-  }
+  return null
 }
 
-function extractBoundsFromSource(source: unknown): GeoBounds | null {
+function extractBoundaryFromSource(source: unknown) {
   const data = (source as { data?: unknown })?.data ?? source
+  const geometry = (data as { geometry?: unknown })?.geometry ?? data
+
+  return normalizeBoundary(geometry)
+}
+
+function boundsFromBoundary(boundary: BoundaryGeometry | null) {
+  if (!boundary) {
+    return null
+  }
+
+  const polygons = boundary.type === 'Polygon' ? [boundary.coordinates] : boundary.coordinates
   let west = Infinity
   let south = Infinity
   let east = -Infinity
   let north = -Infinity
 
-  visitCoordinates(data, ([lng, lat]) => {
-    west = Math.min(west, lng)
-    south = Math.min(south, lat)
-    east = Math.max(east, lng)
-    north = Math.max(north, lat)
-  })
+  for (const polygon of polygons) {
+    for (const ring of polygon) {
+      for (const [lng, lat] of ring) {
+        west = Math.min(west, lng)
+        south = Math.min(south, lat)
+        east = Math.max(east, lng)
+        north = Math.max(north, lat)
+      }
+    }
+  }
 
   return [west, south, east, north].every(Number.isFinite) && west < east && south < north
     ? { west, south, east, north }
@@ -159,11 +193,48 @@ function normalizeBounds(value: unknown): GeoBounds | null {
   const east = bounds.getEast()
   const north = bounds.getNorth()
 
-  return [west, south, east, north].every(Number.isFinite) && west < east && south < north ? { west, south, east, north } : null
+  return [west, south, east, north].every(Number.isFinite) && west < east && south < north
+    ? { west, south, east, north }
+    : null
 }
 
 function cityKeyFromBounds(bounds: GeoBounds) {
-  return [bounds.west, bounds.south, bounds.east, bounds.north].map((value) => value.toFixed(5)).join(':')
+  return [bounds.west, bounds.south, bounds.east, bounds.north]
+    .map((value) => value.toFixed(5))
+    .join(':')
+}
+
+function getPolygons(boundary: BoundaryGeometry | null) {
+  if (!boundary) {
+    return []
+  }
+
+  return boundary.type === 'Polygon' ? [boundary.coordinates] : boundary.coordinates
+}
+
+function getOrCreateMapState(map: MapInstance) {
+  const existing = mapStates.get(map)
+
+  if (existing) {
+    return existing
+  }
+
+  const state: FogMapState = {
+    map,
+    boundary: null,
+    bounds: null,
+    cityKey: null,
+    revealPoints: [],
+    lastRevealCenter: null,
+    progress: 0,
+    canvas: null,
+    redrawFrame: null,
+    listenersAttached: false,
+    redrawListener: null,
+  }
+  mapStates.set(map, state)
+
+  return state
 }
 
 function loadRevealPoints(cityKey: string) {
@@ -175,7 +246,10 @@ function loadRevealPoints(cityKey: string) {
     }
 
     return parsed.filter((point): point is RevealPoint => (
-      isFiniteNumber(point?.lng) && isFiniteNumber(point?.lat) && isFiniteNumber(point?.revealedAt)
+      isFiniteNumber(point?.lng) &&
+      isFiniteNumber(point?.lat) &&
+      isFiniteNumber(point?.radiusM) &&
+      isFiniteNumber(point?.revealedAt)
     ))
   } catch {
     return []
@@ -188,18 +262,21 @@ function saveRevealPoints(state: FogMapState) {
   }
 
   try {
-    window.localStorage.setItem(`${storagePrefix}${state.cityKey}`, JSON.stringify(state.revealPoints.slice(-800)))
+    window.localStorage.setItem(`${storagePrefix}${state.cityKey}`, JSON.stringify(state.revealPoints.slice(-maxRevealPoints)))
   } catch {
     // Discovery remains usable without storage.
   }
 }
 
 function refreshCityKey(state: FogMapState) {
-  if (!state.bounds) {
+  const bounds = state.bounds ?? boundsFromBoundary(state.boundary)
+
+  if (!bounds) {
     return
   }
 
-  const nextCityKey = cityKeyFromBounds(state.bounds)
+  state.bounds = bounds
+  const nextCityKey = cityKeyFromBounds(bounds)
 
   if (state.cityKey === nextCityKey) {
     return
@@ -207,6 +284,7 @@ function refreshCityKey(state: FogMapState) {
 
   state.cityKey = nextCityKey
   state.revealPoints = loadRevealPoints(nextCityKey)
+  state.lastRevealCenter = null
 }
 
 function metersBetween(a: { lng: number, lat: number }, b: { lng: number, lat: number }) {
@@ -222,92 +300,66 @@ function metersBetween(a: { lng: number, lat: number }, b: { lng: number, lat: n
   return 2 * earthRadiusMeters * Math.atan2(Math.sqrt(haversine), Math.sqrt(Math.max(1 - haversine, 0)))
 }
 
-function isPointInsideBounds(point: { lng: number, lat: number }, bounds: GeoBounds | null) {
-  if (!bounds) {
-    return true
-  }
-
-  return point.lng >= bounds.west && point.lng <= bounds.east && point.lat >= bounds.south && point.lat <= bounds.north
+function interpolate(a: number, b: number, t: number) {
+  return a + (b - a) * t
 }
 
-function pointIsRevealed(state: FogMapState, point: { lng: number, lat: number }) {
-  return state.revealPoints.some((revealPoint) => metersBetween(revealPoint, point) <= revealRadiusMeters)
+function deterministicNoise(seed: number) {
+  return Math.sin(seed * 12.9898) * 43758.5453 % 1
 }
 
-function createFogCellGeometry(west: number, south: number, east: number, north: number): PolygonGeometry {
-  return {
-    type: 'Polygon',
-    coordinates: [[
-      [west, south],
-      [east, south],
-      [east, north],
-      [west, north],
-      [west, south],
-    ]],
-  }
-}
+function pointInRing(point: { lng: number, lat: number }, ring: LinearRing) {
+  let inside = false
 
-function createFogFeatureCollection(state: FogMapState): FeatureCollection<PolygonGeometry> {
-  if (!state.bounds) {
-    state.fogCells = 0
-    return { type: 'FeatureCollection', features: [] }
-  }
+  for (let index = 0, previous = ring.length - 1; index < ring.length; previous = index, index += 1) {
+    const [currentLng, currentLat] = ring[index]
+    const [previousLng, previousLat] = ring[previous]
+    const crossesLatitude = currentLat > point.lat !== previousLat > point.lat
+    const crossingLng = ((previousLng - currentLng) * (point.lat - currentLat)) / (previousLat - currentLat + 0.0000000001) + currentLng
 
-  const features: Array<Feature<PolygonGeometry>> = []
-  const cellWidth = (state.bounds.east - state.bounds.west) / fogGridColumns
-  const cellHeight = (state.bounds.north - state.bounds.south) / fogGridRows
-
-  for (let row = 0; row < fogGridRows; row += 1) {
-    for (let column = 0; column < fogGridColumns; column += 1) {
-      const west = state.bounds.west + column * cellWidth
-      const east = west + cellWidth
-      const south = state.bounds.south + row * cellHeight
-      const north = south + cellHeight
-      const center = { lng: west + cellWidth / 2, lat: south + cellHeight / 2 }
-
-      if (pointIsRevealed(state, center)) {
-        continue
-      }
-
-      features.push({
-        type: 'Feature',
-        geometry: createFogCellGeometry(west, south, east, north),
-        properties: { cell: `${column}:${row}` },
-      })
+    if (crossesLatitude && point.lng < crossingLng) {
+      inside = !inside
     }
   }
 
-  state.fogCells = features.length
-
-  return { type: 'FeatureCollection', features }
+  return inside
 }
 
-function createRevealFeatureCollection(state: FogMapState): FeatureCollection<PointGeometry> {
-  return {
-    type: 'FeatureCollection',
-    features: state.revealPoints.slice(-80).map((point) => ({
-      type: 'Feature',
-      geometry: { type: 'Point', coordinates: [point.lng, point.lat] },
-      properties: { revealedAt: point.revealedAt },
-    })),
+function pointInPolygon(point: { lng: number, lat: number }, polygon: LinearRing[]) {
+  const [outerRing, ...holes] = polygon
+
+  return Boolean(outerRing) && pointInRing(point, outerRing) && !holes.some((hole) => pointInRing(point, hole))
+}
+
+function isPointInsideBoundary(point: { lng: number, lat: number }, boundary: BoundaryGeometry | null) {
+  if (!boundary) {
+    return true
   }
+
+  return getPolygons(boundary).some((polygon) => pointInPolygon(point, polygon))
+}
+
+function pointIsRevealed(state: FogMapState, point: { lng: number, lat: number }) {
+  return state.revealPoints.some((revealPoint) => metersBetween(revealPoint, point) <= revealPoint.radiusM)
 }
 
 function estimateProgress(state: FogMapState) {
-  if (!state.bounds) {
-    return Math.min(100, state.revealPoints.length * 3)
+  if (!state.bounds || !state.boundary) {
+    return 0
   }
 
-  const columns = 18
-  const rows = 18
   let sampleCount = 0
   let revealedCount = 0
 
-  for (let row = 0; row < rows; row += 1) {
-    for (let column = 0; column < columns; column += 1) {
+  for (let row = 0; row < progressRows; row += 1) {
+    for (let column = 0; column < progressColumns; column += 1) {
       const sample = {
-        lng: state.bounds.west + ((column + 0.5) / columns) * (state.bounds.east - state.bounds.west),
-        lat: state.bounds.south + ((row + 0.5) / rows) * (state.bounds.north - state.bounds.south),
+        lng: state.bounds.west + ((column + 0.5) / progressColumns) * (state.bounds.east - state.bounds.west),
+        lat: state.bounds.south + ((row + 0.5) / progressRows) * (state.bounds.north - state.bounds.south),
+      }
+
+      if (!isPointInsideBoundary(sample, state.boundary)) {
+        continue
       }
 
       sampleCount += 1
@@ -322,104 +374,220 @@ function estimateProgress(state: FogMapState) {
 }
 
 function publish(state: FogMapState) {
-  lastSnapshot = { cityKey: state.cityKey, progress: state.progress, revealedPoints: state.revealPoints.length }
+  state.progress = estimateProgress(state)
+  lastSnapshot = {
+    cityKey: state.cityKey,
+    progress: state.progress,
+    revealedPoints: state.revealPoints.length,
+  }
   listeners.forEach((listener) => listener(lastSnapshot))
-}
-
-function getSource(map: MapInstance, sourceId: string) {
-  return map.getSource(sourceId) as UpdatableGeoJsonSource | undefined
 }
 
 function logAtlasFog(event: string, payload: Record<string, unknown> = {}) {
   console.info(`[atlas-fog] ${event} ${JSON.stringify(payload)}`)
 }
 
-function updateFogData(state: FogMapState) {
-  refreshCityKey(state)
-  getSource(state.map, fogSourceId)?.setData(createFogFeatureCollection(state))
-  getSource(state.map, revealSourceId)?.setData(createRevealFeatureCollection(state))
-  state.progress = estimateProgress(state)
-  publish(state)
+function ensureFogCanvas(state: FogMapState) {
+  if (state.canvas) {
+    return state.canvas
+  }
+
+  const container = state.map.getContainer()
+  const computedStyle = window.getComputedStyle(container)
+
+  if (computedStyle.position === 'static') {
+    container.style.position = 'relative'
+  }
+
+  const canvas = document.createElement('canvas')
+  canvas.className = 'atlas-organic-fog-canvas'
+  canvas.setAttribute('aria-hidden', 'true')
+  canvas.style.position = 'absolute'
+  canvas.style.inset = '0'
+  canvas.style.width = '100%'
+  canvas.style.height = '100%'
+  canvas.style.pointerEvents = 'none'
+  canvas.style.zIndex = '5'
+  canvas.style.mixBlendMode = 'multiply'
+  container.appendChild(canvas)
+  state.canvas = canvas
+
+  return canvas
 }
 
-function clearFogRetry(state: FogMapState) {
-  state.isStyleRetryScheduled = false
+function resizeCanvas(canvas: HTMLCanvasElement) {
+  const rect = canvas.getBoundingClientRect()
+  const ratio = window.devicePixelRatio || 1
+  const width = Math.max(1, Math.round(rect.width * ratio))
+  const height = Math.max(1, Math.round(rect.height * ratio))
 
-  if (state.retryTimer !== null) {
-    window.clearTimeout(state.retryTimer)
-    state.retryTimer = null
+  if (canvas.width !== width || canvas.height !== height) {
+    canvas.width = width
+    canvas.height = height
+  }
+
+  return { width: rect.width, height: rect.height, ratio }
+}
+
+function drawBoundaryPath(context: CanvasRenderingContext2D, state: FogMapState) {
+  const polygons = getPolygons(state.boundary)
+
+  context.beginPath()
+
+  for (const polygon of polygons) {
+    for (const ring of polygon) {
+      if (!ring.length) {
+        continue
+      }
+
+      const first = state.map.project(ring[0])
+      context.moveTo(first.x, first.y)
+
+      for (let index = 1; index < ring.length; index += 1) {
+        const point = state.map.project(ring[index])
+        context.lineTo(point.x, point.y)
+      }
+
+      context.closePath()
+    }
   }
 }
 
-function scheduleFogLayerInstall(map: MapInstance, state: FogMapState) {
-  if (state.isStyleRetryScheduled || map.getLayer(fogLayerId)) {
+function metersPerPixelAtLatitude(map: MapInstance, latitude: number) {
+  return 156543.03392 * Math.cos(latitude * Math.PI / 180) / Math.pow(2, map.getZoom())
+}
+
+function drawRevealStamp(context: CanvasRenderingContext2D, state: FogMapState, point: RevealPoint, index: number) {
+  const projected = state.map.project([point.lng, point.lat])
+  const metersPerPixel = Math.max(metersPerPixelAtLatitude(state.map, point.lat), 0.0001)
+  const radiusPx = Math.max(5, point.radiusM / metersPerPixel)
+  const gradient = context.createRadialGradient(projected.x, projected.y, 0, projected.x, projected.y, radiusPx)
+
+  gradient.addColorStop(0, 'rgba(0,0,0,1)')
+  gradient.addColorStop(0.68, 'rgba(0,0,0,0.92)')
+  gradient.addColorStop(1, 'rgba(0,0,0,0)')
+
+  context.fillStyle = gradient
+  context.beginPath()
+  context.arc(projected.x, projected.y, radiusPx, 0, Math.PI * 2)
+  context.fill()
+
+  // A few deterministic side lobes break up perfect circular edges without storing more data.
+  for (let lobe = 0; lobe < 3; lobe += 1) {
+    const noise = deterministicNoise(index * 17 + lobe * 29)
+    const angle = (noise + lobe / 3) * Math.PI * 2
+    const lobeRadius = radiusPx * (0.34 + Math.abs(deterministicNoise(index * 41 + lobe)) * 0.16)
+    const offset = radiusPx * (0.38 + Math.abs(deterministicNoise(index * 61 + lobe)) * 0.22)
+    const x = projected.x + Math.cos(angle) * offset
+    const y = projected.y + Math.sin(angle) * offset
+    const lobeGradient = context.createRadialGradient(x, y, 0, x, y, lobeRadius)
+
+    lobeGradient.addColorStop(0, 'rgba(0,0,0,0.55)')
+    lobeGradient.addColorStop(1, 'rgba(0,0,0,0)')
+    context.fillStyle = lobeGradient
+    context.beginPath()
+    context.arc(x, y, lobeRadius, 0, Math.PI * 2)
+    context.fill()
+  }
+}
+
+function drawFog(state: FogMapState) {
+  if (!state.boundary) {
     return
   }
 
-  state.isStyleRetryScheduled = true
+  const canvas = ensureFogCanvas(state)
+  const { width, height, ratio } = resizeCanvas(canvas)
+  const context = canvas.getContext('2d')
 
-  const retry = () => {
-    clearFogRetry(state)
-    ensureFogLayers(map)
+  if (!context) {
+    return
   }
 
-  const eventedMap = map as EventedMap
-  eventedMap.once('load', retry)
-  eventedMap.once('idle', retry)
-  state.retryTimer = window.setTimeout(retry, 250)
-  logAtlasFog('waiting for style', { cityKey: state.cityKey, fogCells: state.fogCells })
+  context.setTransform(1, 0, 0, 1, 0, 0)
+  context.clearRect(0, 0, canvas.width, canvas.height)
+  context.scale(ratio, ratio)
+  context.save()
+  drawBoundaryPath(context, state)
+  context.clip('evenodd')
+  context.fillStyle = 'rgba(18, 24, 23, 0.72)'
+  context.fillRect(0, 0, width, height)
+  context.globalCompositeOperation = 'destination-out'
+
+  state.revealPoints.forEach((point, index) => drawRevealStamp(context, state, point, index))
+  context.restore()
 }
 
-function ensureFogLayers(map: MapInstance) {
-  const state = getOrCreateMapState(map)
-  refreshCityKey(state)
+function requestFogDraw(state: FogMapState) {
+  if (state.redrawFrame !== null) {
+    return
+  }
 
+  state.redrawFrame = window.requestAnimationFrame(() => {
+    state.redrawFrame = null
+    drawFog(state)
+  })
+}
+
+function attachMapDrawListeners(state: FogMapState) {
+  if (state.listenersAttached) {
+    return
+  }
+
+  const redraw = () => requestFogDraw(state)
+  const eventedMap = state.map as EventedMap
+
+  eventedMap.on('move', redraw)
+  eventedMap.on('zoom', redraw)
+  eventedMap.on('resize', redraw)
+  eventedMap.on('rotate', redraw)
+  eventedMap.on('pitch', redraw)
+  eventedMap.on('idle', redraw)
+  state.listenersAttached = true
+  state.redrawListener = redraw
+}
+
+function detachMapDrawListeners(state: FogMapState) {
+  if (!state.listenersAttached || !state.redrawListener) {
+    return
+  }
+
+  const eventedMap = state.map as EventedMap
+
+  eventedMap.off('move', state.redrawListener)
+  eventedMap.off('zoom', state.redrawListener)
+  eventedMap.off('resize', state.redrawListener)
+  eventedMap.off('rotate', state.redrawListener)
+  eventedMap.off('pitch', state.redrawListener)
+  eventedMap.off('idle', state.redrawListener)
+  state.listenersAttached = false
+  state.redrawListener = null
+}
+
+function removeOldMapLibreFog(map: MapInstance) {
   if (!map.isStyleLoaded()) {
-    scheduleFogLayerInstall(map, state)
     return
   }
 
-  clearFogRetry(state)
-
-  if (!map.getSource(fogSourceId)) {
-    map.addSource(fogSourceId, { type: 'geojson', data: createFogFeatureCollection(state) } as AddSourceArgs[1])
+  for (const layerId of [oldRevealLayerId, oldFogLayerId]) {
+    if (map.getLayer(layerId)) {
+      map.removeLayer(layerId)
+    }
   }
 
-  if (!map.getSource(revealSourceId)) {
-    map.addSource(revealSourceId, { type: 'geojson', data: createRevealFeatureCollection(state) } as AddSourceArgs[1])
+  for (const sourceId of [oldRevealSourceId, oldFogSourceId]) {
+    if (map.getSource(sourceId)) {
+      map.removeSource(sourceId)
+    }
   }
+}
 
-  if (!map.getLayer(fogLayerId)) {
-    map.addLayer({
-      id: fogLayerId,
-      type: 'fill',
-      source: fogSourceId,
-      paint: {
-        'fill-color': '#141b19',
-        'fill-opacity': 0.74,
-        'fill-antialias': false,
-      },
-    } as AddLayerArgs[0])
-  }
-
-  if (!map.getLayer(revealLayerId)) {
-    map.addLayer({
-      id: revealLayerId,
-      type: 'circle',
-      source: revealSourceId,
-      paint: {
-        'circle-color': '#fff2c7',
-        'circle-opacity': 0.24,
-        'circle-radius': 30,
-        'circle-stroke-color': '#fff7d9',
-        'circle-stroke-opacity': 0.35,
-        'circle-stroke-width': 2,
-      },
-    } as AddLayerArgs[0])
-  }
-
-  updateFogData(state)
-  logAtlasFog('layers ready', { cityKey: state.cityKey, fogCells: state.fogCells, progress: state.progress })
+function updateFogState(state: FogMapState) {
+  refreshCityKey(state)
+  attachMapDrawListeners(state)
+  removeOldMapLibreFog(state.map)
+  publish(state)
+  requestFogDraw(state)
 }
 
 function extractPoint(data: unknown) {
@@ -432,28 +600,52 @@ function extractPoint(data: unknown) {
   return { lng: geometry.coordinates[0], lat: geometry.coordinates[1] }
 }
 
+function createOrganicRevealPoints(from: { lng: number, lat: number } | null, to: { lng: number, lat: number }) {
+  const distance = from ? metersBetween(from, to) : 0
+  const steps = Math.max(1, Math.ceil(distance / revealSpacingMeters))
+  const points: RevealPoint[] = []
+
+  for (let index = 0; index <= steps; index += 1) {
+    const t = steps === 0 ? 1 : index / steps
+    const lng = from ? interpolate(from.lng, to.lng, t) : to.lng
+    const lat = from ? interpolate(from.lat, to.lat, t) : to.lat
+    const radiusNoise = Math.abs(deterministicNoise(Date.now() + index * 19))
+
+    points.push({
+      lng,
+      lat,
+      radiusM: revealRadiusMeters * (0.86 + radiusNoise * 0.24),
+      revealedAt: Date.now(),
+    })
+  }
+
+  return points
+}
+
 function revealMapPoint(map: MapInstance, point: { lng: number, lat: number }) {
   const state = getOrCreateMapState(map)
   refreshCityKey(state)
 
-  if (!isPointInsideBounds(point, state.bounds)) {
+  if (!isPointInsideBoundary(point, state.boundary)) {
     return
   }
 
-  const nextPoint = { ...point, revealedAt: Date.now() }
-  const alreadyRevealed = state.revealPoints.some((revealedPoint) => metersBetween(revealedPoint, nextPoint) < revealSpacingMeters)
+  const lastPoint = state.lastRevealCenter
+  const alreadyNear = lastPoint ? metersBetween(lastPoint, point) < revealSpacingMeters : false
 
-  if (!alreadyRevealed) {
-    state.revealPoints = [...state.revealPoints, nextPoint].slice(-800)
+  if (!alreadyNear) {
+    const newPoints = createOrganicRevealPoints(lastPoint, point)
+      .filter((candidate) => isPointInsideBoundary(candidate, state.boundary))
+
+    state.revealPoints = [...state.revealPoints, ...newPoints].slice(-maxRevealPoints)
+    state.lastRevealCenter = point
     saveRevealPoints(state)
   }
 
-  ensureFogLayers(map)
-  updateFogData(state)
+  updateFogState(state)
   logAtlasFog('reveal', {
     progress: state.progress,
     revealedPoints: state.revealPoints.length,
-    fogCells: state.fogCells,
     cityKey: state.cityKey,
   })
 }
@@ -481,10 +673,14 @@ function handleSourceAdded(map: MapInstance, sourceId: string, source: AddSource
   const state = getOrCreateMapState(map)
 
   if (sourceId === atlasBoundarySourceId) {
-    state.bounds = extractBoundsFromSource(source) ?? state.bounds
-    refreshCityKey(state)
-    ensureFogLayers(map)
-    logAtlasFog('boundary ready', { cityKey: state.cityKey, hasBounds: Boolean(state.bounds), fogCells: state.fogCells })
+    state.boundary = extractBoundaryFromSource(source)
+    state.bounds = boundsFromBoundary(state.boundary) ?? state.bounds
+    updateFogState(state)
+    logAtlasFog('boundary ready', {
+      cityKey: state.cityKey,
+      polygons: getPolygons(state.boundary).length,
+      revealedPoints: state.revealPoints.length,
+    })
     return
   }
 
@@ -513,26 +709,12 @@ function patchMapPrototype(prototype: PatchableMapPrototype) {
     return result
   }
 
-  const originalAddLayer = prototype.addLayer
-  prototype.addLayer = function patchedAddLayer(this: MapInstance, ...args: AddLayerArgs) {
-    const result = originalAddLayer.apply(this, args)
-    const layer = args[0] as { id?: unknown }
-
-    if (layer.id === atlasOutsideMaskLayerId) {
-      ensureFogLayers(this)
-    }
-
-    return result
-  }
-
   const originalSetMaxBounds = prototype.setMaxBounds
   prototype.setMaxBounds = function patchedSetMaxBounds(this: MapInstance, ...args: SetMaxBoundsArgs) {
     const result = originalSetMaxBounds.apply(this, args)
     const state = getOrCreateMapState(this)
     state.bounds = normalizeBounds(args[0]) ?? state.bounds
-    refreshCityKey(state)
-    ensureFogLayers(this)
-    updateFogData(state)
+    updateFogState(state)
 
     return result
   }
@@ -542,7 +724,13 @@ function patchMapPrototype(prototype: PatchableMapPrototype) {
     const state = mapStates.get(this)
 
     if (state) {
-      clearFogRetry(state)
+      detachMapDrawListeners(state)
+
+      if (state.redrawFrame !== null) {
+        window.cancelAnimationFrame(state.redrawFrame)
+      }
+
+      state.canvas?.remove()
     }
 
     mapStates.delete(this)
