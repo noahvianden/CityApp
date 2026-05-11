@@ -25,6 +25,13 @@ type ViewportSize = {
 }
 
 const cityStyleUrl = `${import.meta.env.BASE_URL}city-style.json`
+const worldMaskRing: [number, number][] = [
+  [-180, 90],
+  [180, 90],
+  [180, -90],
+  [-180, -90],
+  [-180, 90],
+]
 
 function getViewportSize(): ViewportSize {
   if (typeof window === 'undefined') {
@@ -111,7 +118,7 @@ function getAccuracyRadius(accuracyM: number | undefined) {
   return Math.min(Math.max(accuracyM / 3, 14), 42)
 }
 
-function pointToFeature(point: AtlasPoint, cityName: string, mode: LocationMode): MapLibrePointFeature {
+function pointToFeature(point: AtlasPoint, mode: LocationMode): MapLibrePointFeature {
   return {
     type: 'Feature',
     geometry: {
@@ -120,9 +127,20 @@ function pointToFeature(point: AtlasPoint, cityName: string, mode: LocationMode)
     },
     properties: {
       accuracyRadius: getAccuracyRadius(point.accuracyM),
-      label: cityName,
+      label: mode === 'gps' ? 'GPS' : 'Simulated',
       pointColor: mode === 'gps' ? '#2f7d57' : '#d78b35',
     },
+  }
+}
+
+function boundaryRingsFromBoundary(boundary: BoundedAtlasPoint['boundary']) {
+  return boundary.type === 'Polygon' ? boundary.coordinates : boundary.coordinates.flat()
+}
+
+function outsideCityMaskGeometry(boundary: BoundedAtlasPoint['boundary']) {
+  return {
+    type: 'Polygon' as const,
+    coordinates: [worldMaskRing, ...boundaryRingsFromBoundary(boundary)],
   }
 }
 
@@ -173,13 +191,22 @@ function MapLibreCityMap({ atlas, mode }: { atlas: BoundedAtlasPoint, mode: Loca
           return
         }
 
-        const pointFeature = pointToFeature(atlas.point, atlas.cityName, mode)
+        const pointFeature = pointToFeature(atlas.point, mode)
 
-        map.addSource('atlas-mask-source', {
+        map.addSource('atlas-boundary-source', {
           type: 'geojson',
           data: {
             type: 'Feature',
             geometry: atlas.boundary,
+            properties: {},
+          },
+        })
+
+        map.addSource('atlas-outside-mask-source', {
+          type: 'geojson',
+          data: {
+            type: 'Feature',
+            geometry: outsideCityMaskGeometry(atlas.boundary),
             properties: {},
           },
         })
@@ -190,19 +217,19 @@ function MapLibreCityMap({ atlas, mode }: { atlas: BoundedAtlasPoint, mode: Loca
         })
 
         map.addLayer({
-          id: 'atlas-boundary-fill',
+          id: 'atlas-outside-city-mask',
           type: 'fill',
-          source: 'atlas-mask-source',
+          source: 'atlas-outside-mask-source',
           paint: {
-            'fill-color': '#eef2ee',
-            'fill-opacity': 0.58,
+            'fill-color': '#f7efe0',
+            'fill-opacity': 0.88,
           },
         })
 
         map.addLayer({
           id: 'atlas-outline',
           type: 'line',
-          source: 'atlas-mask-source',
+          source: 'atlas-boundary-source',
           paint: {
             'line-color': '#1d352b',
             'line-opacity': 0.72,
