@@ -330,38 +330,31 @@ async function getCurrentLocation() {
   return getBrowserCurrentLocation()
 }
 
-function FollowAtlasPoint({ point }: { point: AtlasPoint }) {
+function LockAtlasBounds({ bounds, point }: { bounds: GeoBounds; point: AtlasPoint }) {
   const map = useMap()
 
   useEffect(() => {
-    map.panTo([point.latitude, point.longitude], { animate: true })
-  }, [map, point.latitude, point.longitude])
-
-  return null
-}
-
-function LockAtlasBounds({ bounds }: { bounds: GeoBounds }) {
-  const map = useMap()
-
-  useEffect(() => {
-    const nextBounds: [[number, number], [number, number]] = [
+    const cityBounds = L.latLngBounds([
       [bounds.south, bounds.west],
       [bounds.north, bounds.east],
-    ]
+    ])
 
-    map.setMaxBounds(nextBounds)
-    map.fitBounds(nextBounds, {
-      animate: false,
-      paddingTopLeft: [0, 24],
-      paddingBottomRight: [24, 24],
-    })
+    const fillViewportWithCity = () => {
+      const coverZoom = map.getBoundsZoom(cityBounds, true, [0, 0])
+      const focusPoint = L.latLng(point.latitude, point.longitude)
 
-    const cityLeftEdge = map.latLngToContainerPoint([bounds.south, bounds.west]).x
-
-    if (Number.isFinite(cityLeftEdge) && Math.abs(cityLeftEdge) > 0.5) {
-      map.panBy([cityLeftEdge, 0], { animate: false })
+      map.setMaxBounds(cityBounds)
+      map.setView(focusPoint, coverZoom, { animate: false })
+      map.panInsideBounds(cityBounds, { animate: false })
     }
-  }, [bounds, map])
+
+    fillViewportWithCity()
+    map.on('resize', fillViewportWithCity)
+
+    return () => {
+      map.off('resize', fillViewportWithCity)
+    }
+  }, [bounds, map, point.latitude, point.longitude])
 
   return null
 }
@@ -461,6 +454,7 @@ function App() {
       <MapContainer
         center={[initialPoint.latitude, initialPoint.longitude]}
         zoom={14}
+        zoomSnap={0.1}
         scrollWheelZoom
         maxBoundsViscosity={1}
         zoomControl={false}
@@ -470,9 +464,8 @@ function App() {
           attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>'
           url="https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png"
         />
-        <LockAtlasBounds bounds={activeBounds} />
+        <LockAtlasBounds bounds={activeBounds} point={activePoint} />
         <BoundaryMaskLayer boundary={activeBoundary} />
-        <FollowAtlasPoint point={activePoint} />
         {activePoint.accuracyM ? (
           <CircleMarker
             center={[activePoint.latitude, activePoint.longitude]}
