@@ -3,7 +3,9 @@
   inset: 0;
   min-width: 320px;
   min-height: 100svh;
-  background: #eef2ee;
+  background:
+    radial-gradient(circle at 50% 38%, rgba(255, 253, 247, 0.74), transparent 42%),
+    linear-gradient(180deg, #f6f7f3 0%, #eef2ee 52%, #e3ebe5 100%);
   overflow: hidden;
 }
 
@@ -12,11 +14,16 @@
   position: absolute;
   top: 0;
   left: 50%;
+  box-sizing: border-box;
   max-width: 100vw;
   max-height: 100svh;
   transform: translateX(-50%);
   overflow: hidden;
-  background: #d8e3da;
+  background: #eef2ee;
+  border: 2px solid rgba(29, 53, 43, 0.58);
+  box-shadow:
+    0 0 0 1px rgba(255, 253, 247, 0.78) inset,
+    0 18px 48px rgba(17, 29, 23, 0.18);
 }
 
 .atlas-empty-state {
@@ -31,6 +38,7 @@
 .atlas-map {
   width: 100%;
   height: 100%;
+  background: #eef2ee;
 }
 
 .atlas-controls {
