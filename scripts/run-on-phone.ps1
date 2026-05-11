@@ -1,10 +1,13 @@
 param(
-  [string]$Serial
+  [string]$Serial,
+  [switch]$KeepData
 )
 
 $ErrorActionPreference = 'Stop'
 
 $repoRoot = Resolve-Path (Join-Path $PSScriptRoot '..')
+$packageName = 'com.cityprint.app'
+$activityName = 'com.cityprint.app/.MainActivity'
 $sdkRoot = $env:ANDROID_SDK_ROOT
 
 if (-not $sdkRoot) {
@@ -35,6 +38,12 @@ function Invoke-Adb {
   }
 }
 
+function Invoke-AdbOptional {
+  param([Parameter(ValueFromRemainingArguments = $true)][string[]]$Arguments)
+
+  & $adb @Arguments | Out-Host
+}
+
 function Invoke-CommandChecked {
   param(
     [string]$FilePath,
@@ -52,6 +61,10 @@ function Invoke-CommandChecked {
     Pop-Location
   }
 }
+
+Write-Host 'Removing generated web and Capacitor assets...'
+Remove-Item -Recurse -Force (Join-Path $repoRoot.Path 'dist') -ErrorAction SilentlyContinue
+Remove-Item -Recurse -Force (Join-Path $repoRoot.Path 'android\app\src\main\assets\public') -ErrorAction SilentlyContinue
 
 Write-Host 'Building web assets and syncing Capacitor...'
 Invoke-CommandChecked -FilePath 'npm.cmd' -Arguments @('run', 'android:sync') -WorkingDirectory $repoRoot.Path
@@ -79,10 +92,21 @@ if ($devices -notcontains $targetSerial) {
   throw "Device '$targetSerial' is not connected or not authorized. Connected devices: $($devices -join ', ')"
 }
 
-Write-Host "Installing debug build on $targetSerial..."
-Invoke-CommandChecked -FilePath (Join-Path $repoRoot.Path 'android\gradlew.bat') -Arguments @('installDebug') -WorkingDirectory (Join-Path $repoRoot.Path 'android')
+if (-not $KeepData) {
+  Write-Host "Removing old $packageName install and WebView cache from $targetSerial..."
+  Invoke-AdbOptional -Arguments @('-s', $targetSerial, 'shell', 'am', 'force-stop', $packageName)
+  Invoke-AdbOptional -Arguments @('-s', $targetSerial, 'uninstall', $packageName)
+}
 
-Write-Host "Starting com.cityprint.app on $targetSerial..."
-Invoke-Adb -Arguments @('-s', $targetSerial, 'shell', 'am', 'start', '-n', 'com.cityprint.app/.MainActivity')
+Write-Host "Installing debug build on $targetSerial..."
+Invoke-CommandChecked -FilePath (Join-Path $repoRoot.Path 'android\gradlew.bat') -Arguments @('clean', 'installDebug') -WorkingDirectory (Join-Path $repoRoot.Path 'android')
+
+if (-not $KeepData) {
+  Write-Host "Clearing app data for $packageName on $targetSerial..."
+  Invoke-AdbOptional -Arguments @('-s', $targetSerial, 'shell', 'pm', 'clear', $packageName)
+}
+
+Write-Host "Starting $packageName on $targetSerial..."
+Invoke-Adb -Arguments @('-s', $targetSerial, 'shell', 'am', 'start', '-n', $activityName)
 
 Write-Host "App started on $targetSerial."
