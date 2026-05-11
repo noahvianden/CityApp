@@ -64,6 +64,10 @@ function clamp(value: number, min: number, max: number) {
   return Math.min(Math.max(value, min), max)
 }
 
+function formatCoordinate(value: number, positive: string, negative: string) {
+  return `${Math.abs(value).toFixed(4)}° ${value >= 0 ? positive : negative}`
+}
+
 function getViewportSize(): ViewportSize {
   if (typeof window === 'undefined') {
     return { width: 320, height: 640 }
@@ -315,10 +319,52 @@ function DummyPanel({ tab }: { tab: AppTabItem }) {
   )
 }
 
+function CityDetailPanel({ atlas, mode, onBack }: { atlas: BoundedAtlasPoint, mode: LocationMode, onBack: () => void }) {
+  const latitude = formatCoordinate(atlas.point.latitude, 'N', 'S')
+  const longitude = formatCoordinate(atlas.point.longitude, 'E', 'W')
+  const north = formatCoordinate(atlas.bounds.north, 'N', 'S')
+  const south = formatCoordinate(atlas.bounds.south, 'N', 'S')
+  const east = formatCoordinate(atlas.bounds.east, 'E', 'W')
+  const west = formatCoordinate(atlas.bounds.west, 'E', 'W')
+
+  return (
+    <section className="atlas-city-detail-panel" aria-label={`${atlas.cityName} details`}>
+      <div className="atlas-city-detail-hero">
+        <span className="atlas-dummy-eyebrow">City profile</span>
+        <h2>{atlas.cityName}</h2>
+        <p>{atlas.cityCountry} · {atlas.cityStatus}</p>
+      </div>
+
+      <div className="atlas-city-detail-grid">
+        <article>
+          <span>Location mode</span>
+          <strong>{mode === 'gps' ? 'GPS point' : 'Simulated point'}</strong>
+        </article>
+        <article>
+          <span>Current point</span>
+          <strong>{latitude}, {longitude}</strong>
+        </article>
+        <article>
+          <span>Boundary range</span>
+          <strong>{north} to {south}</strong>
+          <small>{west} to {east}</small>
+        </article>
+        <article>
+          <span>Map behavior</span>
+          <strong>Clear inside, muted outside</strong>
+        </article>
+      </div>
+
+      <button className="atlas-city-detail-back" type="button" onClick={onBack}>Back to map</button>
+    </section>
+  )
+}
+
 function App() {
   const [mode, setMode] = useState<LocationMode>('simulated')
   const [activeTab, setActiveTab] = useState<AppTab>('atlas')
   const [activeAtlas, setActiveAtlas] = useState<BoundedAtlasPoint | null>(null)
+  const [isCityDetailOpen, setIsCityDetailOpen] = useState(false)
   const [viewportSize, setViewportSize] = useState<ViewportSize>(() => getViewportSize())
   const [isLocating, setIsLocating] = useState(false)
   const [locationMessage, setLocationMessage] = useState('Stadtgrenze wird geladen...')
@@ -334,6 +380,7 @@ function App() {
     : 'empty-atlas'
   const activeTabItem = getAppTab(activeTab)
   const displayedTitle = activeTab === 'atlas' ? activeAtlas?.cityName ?? 'City' : activeTabItem.label
+  const shouldShowAtlasMap = activeTab === 'atlas' && !isCityDetailOpen
 
   useEffect(() => {
     const updateViewportSize = () => {
@@ -406,6 +453,20 @@ function App() {
     setMapViewAction({ type, nonce: Date.now() })
   }
 
+  function openTab(tab: AppTab) {
+    setActiveTab(tab)
+
+    if (tab !== 'atlas') {
+      setIsCityDetailOpen(false)
+    }
+  }
+
+  function openCityDetail() {
+    if (activeTab === 'atlas' && activeAtlas) {
+      setIsCityDetailOpen(true)
+    }
+  }
+
   function nudgeGpsLocation(direction: GpsNudgeDirection) {
     setMode('gps')
     setActiveAtlas((currentAtlas) => {
@@ -432,7 +493,20 @@ function App() {
   return (
     <main className="atlas-core">
       <header className="atlas-header">
-        <h1>{displayedTitle}</h1>
+        <h1>
+          {activeTab === 'atlas' ? (
+            <button
+              className="atlas-city-title-button"
+              type="button"
+              onClick={openCityDetail}
+              disabled={!activeAtlas}
+              aria-label={`Open ${displayedTitle} details`}
+            >
+              <span>{displayedTitle}</span>
+              <small>Details</small>
+            </button>
+          ) : displayedTitle}
+        </h1>
         <div className="atlas-header-actions" aria-hidden="true">
           <button className="atlas-icon-button" type="button">+</button>
           <button className="atlas-icon-button" type="button">L</button>
@@ -440,7 +514,9 @@ function App() {
       </header>
 
       {activeTab === 'atlas' ? (
-        activeAtlas ? (
+        activeAtlas && isCityDetailOpen ? (
+          <CityDetailPanel atlas={activeAtlas} mode={mode} onBack={() => setIsCityDetailOpen(false)} />
+        ) : activeAtlas ? (
           <div className="atlas-map-frame" style={mapFrameStyle}>
             <MapLibreCityMap key={mapKey} atlas={activeAtlas} mode={mode} viewAction={mapViewAction} />
             <div className="atlas-map-actions" role="group" aria-label="Map view controls">
@@ -457,7 +533,7 @@ function App() {
         <DummyPanel tab={activeTabItem} />
       )}
 
-      {activeTab === 'atlas' ? (
+      {shouldShowAtlasMap ? (
         <div className="atlas-controls" role="group" aria-label="Atlas location controls">
           <button className={mode === 'gps' ? 'atlas-control active' : 'atlas-control'} type="button" onClick={useGpsLocation} aria-label="GPS" aria-busy={isLocating}>
             <Crosshair size={20} aria-hidden="true" />
@@ -470,7 +546,7 @@ function App() {
         </div>
       ) : null}
 
-      {activeTab === 'atlas' && activeAtlas ? (
+      {shouldShowAtlasMap && activeAtlas ? (
         <div className="atlas-joycon" role="group" aria-label="Move GPS location">
           <button className="atlas-joycon-button north" type="button" onClick={() => nudgeGpsLocation('north')} aria-label="Move GPS north">↑</button>
           <button className="atlas-joycon-button west" type="button" onClick={() => nudgeGpsLocation('west')} aria-label="Move GPS west">←</button>
@@ -482,7 +558,7 @@ function App() {
 
       <nav className="atlas-tabbar" aria-label="App navigation">
         {appTabs.map((tab) => (
-          <button key={tab.key} className={activeTab === tab.key ? 'atlas-tab active' : 'atlas-tab'} type="button" onClick={() => setActiveTab(tab.key)} aria-current={activeTab === tab.key ? 'page' : undefined}>
+          <button key={tab.key} className={activeTab === tab.key ? 'atlas-tab active' : 'atlas-tab'} type="button" onClick={() => openTab(tab.key)} aria-current={activeTab === tab.key ? 'page' : undefined}>
             <strong>{tab.icon}</strong>
             <span>{tab.label}</span>
           </button>
