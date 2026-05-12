@@ -1,5 +1,22 @@
 .atlas-core {
-  --atlas-map-height: min(720px, max(360px, calc(var(--atlas-shell-height) - 245px)));
+  --atlas-map-top: 98px;
+  --atlas-control-bottom: 98px;
+  --atlas-control-height: 38px;
+  --atlas-control-to-tab-gap: 22px;
+  --atlas-map-to-controls-gap: var(--atlas-control-to-tab-gap);
+  --atlas-map-height: min(
+    880px,
+    max(
+      360px,
+      calc(
+        var(--atlas-shell-height)
+        - var(--atlas-map-top)
+        - var(--atlas-control-bottom)
+        - var(--atlas-control-height)
+        - var(--atlas-map-to-controls-gap)
+      )
+    )
+  );
 }
 
 .atlas-joycon {
@@ -18,7 +35,21 @@
 
 @media (max-height: 740px) {
   .atlas-core {
-    --atlas-map-height: min(620px, max(330px, calc(var(--atlas-shell-height) - 235px)));
+    --atlas-map-top: 94px;
+    --atlas-map-to-controls-gap: 18px;
+    --atlas-map-height: min(
+      680px,
+      max(
+        330px,
+        calc(
+          var(--atlas-shell-height)
+          - var(--atlas-map-top)
+          - var(--atlas-control-bottom)
+          - var(--atlas-control-height)
+          - var(--atlas-map-to-controls-gap)
+        )
+      )
+    );
   }
 }
 
