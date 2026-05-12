@@ -24,6 +24,18 @@ allprojects {
     }
 }
 
+subprojects { subproject ->
+    if (subproject.name == 'capacitor-filesystem') {
+        subproject.tasks.configureEach { task ->
+            if (task.name.toLowerCase().contains('kotlin') && task.hasProperty('kotlinOptions')) {
+                // The warnings come from Capacitor's vendored filesystem plugin source in node_modules,
+                // not from CityApp. Keep the suppression scoped to that dependency project only.
+                task.kotlinOptions.suppressWarnings = true
+            }
+        }
+    }
+}
+
 task clean(type: Delete) {
     delete rootProject.buildDir
 }
