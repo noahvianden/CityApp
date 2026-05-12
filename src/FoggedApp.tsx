@@ -6,6 +6,7 @@ import {
   setAtlasFogVisible,
   subscribeAtlasFog,
 } from './atlasGeoFogBridge'
+import { installCityStyleFetchPatch } from './atlasStyle'
 import { installAtlasUiTweaks } from './atlasUiTweaks'
 import App from './App'
 import './atlasFogOverlay.css'
@@ -272,6 +273,7 @@ export default function FoggedApp() {
   useEffect(() => {
     let cancelled = false
 
+    installCityStyleFetchPatch()
     Promise.all([installAtlasUiTweaks(), installAtlasGeoFogBridge()])
       .catch((error: unknown) => console.error('[atlas-fog] bridge install failed', error))
       .finally(() => {
