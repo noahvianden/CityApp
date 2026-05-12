@@ -12,9 +12,9 @@ type StoredCamera = {
   savedAt: number
 }
 type BoundsLike = [[number, number], [number, number]] | { getWest?: () => number, getEast?: () => number, getSouth?: () => number, getNorth?: () => number }
-type LayerEventMap = {
-  on: (event: string, listener: () => void) => void
-  once: (event: string, listener: () => void) => void
+type CameraEventMap = {
+  on: (event: string, listener: () => void) => unknown
+  once: (event: string, listener: () => void) => unknown
   loaded: () => boolean
 }
 
@@ -209,7 +209,7 @@ function attachCameraSave(map: MapInstance) {
   if (sessionMap.__cityAtlasCameraAttached) return
   sessionMap.__cityAtlasCameraAttached = true
 
-  const eventMap = map as unknown as LayerEventMap
+  const eventMap = map as unknown as CameraEventMap
   eventMap.on('moveend', () => setStoredCamera(map))
   eventMap.on('zoomend', () => setStoredCamera(map))
   eventMap.on('rotateend', () => setStoredCamera(map))
@@ -239,6 +239,7 @@ function patchMapPrototype(prototype: PatchableMap) {
   const originalSetMaxBounds = prototype.setMaxBounds
   prototype.setMaxBounds = function patchedSetMaxBounds(this: MapInstance, ...args: Parameters<MapInstance['setMaxBounds']>) {
     const result = originalSetMaxBounds.apply(this, args)
+    attachCameraSave(this)
     restoreStoredCamera(this, args[0] as BoundsLike | null | undefined)
     return result
   }
@@ -247,13 +248,6 @@ function patchMapPrototype(prototype: PatchableMap) {
   prototype.remove = function patchedRemove(this: MapInstance) {
     setStoredCamera(this)
     return originalRemove.call(this)
-  }
-
-  const originalOn = prototype.on
-  prototype.on = function patchedOn(this: MapInstance, ...args: Parameters<MapInstance['on']>) {
-    const result = originalOn.apply(this, args)
-    if (args[0] === 'load') window.setTimeout(() => attachCameraSave(this), 0)
-    return result
   }
 }
 
