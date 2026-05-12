@@ -1,10 +1,23 @@
 import { getAtlasFogSnapshot, getAtlasFogVisible, setAtlasFogVisible } from './atlasGeoFogBridge'
 
+type Coordinate = [number, number]
+type LivePlaceCategory = 'cafe' | 'restaurant' | 'bar' | 'gallery' | 'culture' | 'viewpoint' | 'market' | 'park' | 'shop' | 'landmark'
+type SavedPlace = {
+  id: string
+  name: string
+  category: LivePlaceCategory
+  detail: string
+  coordinate: Coordinate
+  addressLabel: string
+  googleMapsUrl: string
+  savedAt: number
+}
 type RealTabKey = 'memories' | 'stats' | 'privacy'
 type StoredPlaceState = {
   savedIds: string[]
   visitedIds: string[]
   memoryIds: string[]
+  savedPlaces: SavedPlace[]
 }
 
 const placeStateStorageKey = 'cityapp:place-discovery-card-state:v1'
@@ -12,6 +25,14 @@ let isInstalled = false
 let intervalId: number | null = null
 let observer: MutationObserver | null = null
 let pendingFrame = 0
+
+function finite(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value)
+}
+
+function isCoordinate(value: unknown): value is Coordinate {
+  return Array.isArray(value) && value.length >= 2 && finite(value[0]) && finite(value[1])
+}
 
 function escapeHtml(value: string) {
   return value
@@ -30,6 +51,48 @@ function readStringArray(value: unknown) {
   return Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === 'string') : []
 }
 
+function categoryProperty(value: unknown): LivePlaceCategory {
+  if (
+    value === 'cafe'
+    || value === 'restaurant'
+    || value === 'bar'
+    || value === 'gallery'
+    || value === 'culture'
+    || value === 'viewpoint'
+    || value === 'market'
+    || value === 'park'
+    || value === 'shop'
+    || value === 'landmark'
+  ) return value
+  return 'landmark'
+}
+
+function isSavedPlace(value: unknown): value is SavedPlace {
+  if (!value || typeof value !== 'object') return false
+  const entry = value as Partial<SavedPlace>
+  return (
+    typeof entry.id === 'string'
+    && typeof entry.name === 'string'
+    && typeof entry.detail === 'string'
+    && isCoordinate(entry.coordinate)
+    && typeof entry.addressLabel === 'string'
+    && typeof entry.googleMapsUrl === 'string'
+    && finite(entry.savedAt)
+  )
+}
+
+function dedupeSavedPlaces(places: SavedPlace[]) {
+  const seen = new Set<string>()
+  return places
+    .map((place) => ({ ...place, category: categoryProperty(place.category) }))
+    .filter((place) => {
+      if (seen.has(place.id)) return false
+      seen.add(place.id)
+      return true
+    })
+    .sort((a, b) => b.savedAt - a.savedAt)
+}
+
 function getPlaceState(): StoredPlaceState {
   try {
     const parsed = JSON.parse(window.localStorage.getItem(placeStateStorageKey) ?? '{}')
@@ -37,9 +100,27 @@ function getPlaceState(): StoredPlaceState {
       savedIds: readStringArray(parsed.savedIds),
       visitedIds: readStringArray(parsed.visitedIds),
       memoryIds: readStringArray(parsed.memoryIds),
+      savedPlaces: Array.isArray(parsed.savedPlaces) ? dedupeSavedPlaces(parsed.savedPlaces.filter(isSavedPlace)) : [],
     }
   } catch {
-    return { savedIds: [], visitedIds: [], memoryIds: [] }
+    return { savedIds: [], visitedIds: [], memoryIds: [], savedPlaces: [] }
+  }
+}
+
+function setPlaceState(state: StoredPlaceState) {
+  const savedIds = Array.from(new Set(state.savedIds))
+  const savedIdSet = new Set(savedIds)
+  const savedPlaces = dedupeSavedPlaces(state.savedPlaces.filter((place) => savedIdSet.has(place.id)))
+
+  try {
+    window.localStorage.setItem(placeStateStorageKey, JSON.stringify({
+      savedIds,
+      visitedIds: Array.from(new Set(state.visitedIds)),
+      memoryIds: Array.from(new Set(state.memoryIds)),
+      savedPlaces,
+    }))
+  } catch {
+    // Optional UI storage.
   }
 }
 
@@ -56,6 +137,28 @@ function getActiveTabKey(): RealTabKey | null {
   if (text.includes('privacy')) return 'privacy'
 
   return null
+}
+
+function getCategoryLabel(category: LivePlaceCategory) {
+  const labels: Record<LivePlaceCategory, string> = {
+    cafe: 'Cafe',
+    restaurant: 'Food',
+    bar: 'Bar',
+    gallery: 'Gallery',
+    culture: 'Culture',
+    viewpoint: 'View',
+    market: 'Market',
+    park: 'Park',
+    shop: 'Shop',
+    landmark: 'Landmark',
+  }
+  return labels[category]
+}
+
+function formatSavedAt(savedAt: number) {
+  const date = new Date(savedAt)
+  if (Number.isNaN(date.getTime())) return 'Saved place'
+  return `Saved ${date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}`
 }
 
 function metric(label: string, value: string, note?: string) {
@@ -81,34 +184,65 @@ function actionButton(label: string, action: string, isActive = false) {
   return `<button class="city-real-tab-action ${isActive ? 'active' : ''}" type="button" data-real-tab-action="${escapeHtml(action)}">${escapeHtml(label)}</button>`
 }
 
+function savedPlaceItem(place: SavedPlace) {
+  return `
+    <article class="city-saved-place-item" data-saved-place-id="${escapeHtml(place.id)}">
+      <button class="city-saved-place-main" type="button" data-real-tab-action="open-saved-place" data-place-id="${escapeHtml(place.id)}">
+        <span class="city-saved-place-pin ${escapeHtml(place.category)}" aria-hidden="true"></span>
+        <span class="city-saved-place-copy">
+          <strong>${escapeHtml(place.name)}</strong>
+          <small>${escapeHtml(getCategoryLabel(place.category))} · ${escapeHtml(place.detail)}</small>
+          <em>${escapeHtml(place.addressLabel || 'Address unavailable')}</em>
+        </span>
+        <span class="city-saved-place-date">${escapeHtml(formatSavedAt(place.savedAt))}</span>
+      </button>
+      <button class="city-saved-place-remove" type="button" data-real-tab-action="remove-saved-place" data-place-id="${escapeHtml(place.id)}" aria-label="Remove ${escapeHtml(place.name)} from saved places">×</button>
+    </article>
+  `
+}
+
+function savedPlacesList(savedPlaces: SavedPlace[]) {
+  if (!savedPlaces.length) {
+    return `
+      <div class="city-saved-places-empty">
+        <strong>No saved places yet</strong>
+        <span>Tap a live place on Atlas, then press Save. Saved places will appear here with address details and quick map access.</span>
+      </div>
+    `
+  }
+
+  return `
+    <div class="city-saved-places-list" aria-label="Saved places">
+      ${savedPlaces.map(savedPlaceItem).join('')}
+    </div>
+  `
+}
+
 function memoryContent(placeState: StoredPlaceState) {
-  const savedCount = placeState.savedIds.length
+  const savedPlaces = placeState.savedPlaces
+  const savedCount = Math.max(placeState.savedIds.length, savedPlaces.length)
   const visitedCount = placeState.visitedIds.length
   const memoryCount = placeState.memoryIds.length
-  const hasActivity = savedCount > 0 || visitedCount > 0 || memoryCount > 0
 
   return `
     <div class="city-real-tab-header">
       <span>Memories</span>
-      <div role="heading" aria-level="2">Your discovered places</div>
-      <small>${escapeHtml(getActiveCityName())} · built from places you save while exploring</small>
+      <div role="heading" aria-level="2">Saved places</div>
+      <small>${escapeHtml(getActiveCityName())} · places you saved from live discovery cards</small>
     </div>
     <div class="city-real-tab-metrics">
-      ${metric('saved places', String(savedCount), 'from place cards')}
+      ${metric('saved places', String(savedCount), savedPlaces.length ? 'listed below' : 'from place cards')}
       ${metric('visited places', String(visitedCount), 'marked by you')}
       ${metric('memories', String(memoryCount), 'kept for later')}
     </div>
+    ${savedPlacesList(savedPlaces)}
     <div class="city-real-tab-card-list">
       ${card(
-        hasActivity ? 'Recent discovery state' : 'No memories yet',
-        hasActivity
-          ? `${pluralize(savedCount, 'place')} saved, ${pluralize(visitedCount, 'place')} visited, and ${pluralize(memoryCount, 'memory', 'memories')} added.`
-          : 'Tap a live place on the Atlas map, then use Save, Visited, or Add memory to start building this page.',
+        savedPlaces.length ? 'Saved place list' : 'Start your list',
+        savedPlaces.length
+          ? `${pluralize(savedPlaces.length, 'place')} saved. Tap a row to open it in Google Maps, or remove it with ×.`
+          : 'Your saved place list is built from live places on the Atlas map.',
         'warm',
-      )}
-      ${card(
-        'What this page keeps',
-        'Only place-level discovery choices are shown here. It does not list your exact GPS trail.',
       )}
     </div>
   `
@@ -184,6 +318,7 @@ function getPanelSignature(tabKey: RealTabKey) {
     tabKey,
     city: getActiveCityName(),
     saved: state.savedIds.length,
+    savedPlaces: state.savedPlaces.map((place) => `${place.id}:${place.savedAt}:${place.addressLabel}`).join('|'),
     visited: state.visitedIds.length,
     memories: state.memoryIds.length,
     progress: snapshot.progress,
@@ -220,11 +355,33 @@ function scheduleRenderRealTabPanel() {
   if (!pendingFrame) pendingFrame = window.requestAnimationFrame(renderRealTabPanel)
 }
 
+function getSavedPlace(id: string) {
+  return getPlaceState().savedPlaces.find((place) => place.id === id)
+}
+
+function removeSavedPlace(id: string) {
+  const state = getPlaceState()
+  setPlaceState({
+    ...state,
+    savedIds: state.savedIds.filter((entry) => entry !== id),
+    savedPlaces: state.savedPlaces.filter((place) => place.id !== id),
+  })
+  scheduleRenderRealTabPanel()
+}
+
+function openSavedPlace(id: string) {
+  const place = getSavedPlace(id)
+  if (!place) return
+  window.open(place.googleMapsUrl, '_blank', 'noopener,noreferrer')
+}
+
 function handleRealTabAction(event: MouseEvent) {
   const actionElement = (event.target as HTMLElement | null)?.closest<HTMLElement>('[data-real-tab-action]')
   if (!actionElement) return
 
   const action = actionElement.dataset.realTabAction
+  const placeId = actionElement.dataset.placeId
+
   if (action === 'toggle-fog') {
     setAtlasFogVisible(!getAtlasFogVisible())
     scheduleRenderRealTabPanel()
@@ -233,6 +390,18 @@ function handleRealTabAction(event: MouseEvent) {
 
   if (action === 'atlas') {
     document.querySelector<HTMLButtonElement>('.atlas-tab')?.click()
+    return
+  }
+
+  if (action === 'open-saved-place' && placeId) {
+    openSavedPlace(placeId)
+    return
+  }
+
+  if (action === 'remove-saved-place' && placeId) {
+    event.preventDefault()
+    event.stopPropagation()
+    removeSavedPlace(placeId)
   }
 }
 
@@ -310,6 +479,120 @@ function ensureStyles() {
       font-weight: 800;
       line-height: 1.15;
     }
+    .city-saved-places-list {
+      display: grid;
+      gap: 10px;
+      max-height: min(260px, 31svh);
+      overflow-y: auto;
+      padding-right: 2px;
+      scrollbar-width: thin;
+    }
+    .city-saved-place-item {
+      position: relative;
+      border: 1px solid rgba(66,47,25,.08);
+      border-radius: 20px;
+      background: rgba(255,253,247,.7);
+      box-shadow: 0 10px 20px rgba(54,42,28,.05);
+      overflow: hidden;
+    }
+    .city-saved-place-main {
+      display: grid;
+      width: 100%;
+      min-height: 86px;
+      grid-template-columns: 42px minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 11px;
+      border: 0;
+      background: transparent;
+      color: #2a2824;
+      font: inherit;
+      padding: 14px 44px 14px 14px;
+      text-align: left;
+    }
+    .city-saved-place-pin {
+      width: 42px;
+      height: 42px;
+      border-radius: 15px;
+      background: #d9654f;
+      box-shadow: inset 0 0 0 8px rgba(255,250,241,.52);
+    }
+    .city-saved-place-pin.cafe { background: #b66b3e; }
+    .city-saved-place-pin.restaurant { background: #c65f46; }
+    .city-saved-place-pin.bar { background: #7a5fb2; }
+    .city-saved-place-pin.gallery { background: #6f72bd; }
+    .city-saved-place-pin.culture { background: #4f7fa5; }
+    .city-saved-place-pin.viewpoint { background: #2f8f7f; }
+    .city-saved-place-pin.market { background: #c08a2f; }
+    .city-saved-place-pin.park { background: #4f8f55; }
+    .city-saved-place-pin.shop { background: #7d745d; }
+    .city-saved-place-copy {
+      display: grid;
+      min-width: 0;
+      gap: 4px;
+    }
+    .city-saved-place-copy strong {
+      overflow: hidden;
+      color: #2a2824;
+      font-size: 15px;
+      font-weight: 950;
+      line-height: 1.08;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .city-saved-place-copy small,
+    .city-saved-place-copy em {
+      overflow: hidden;
+      color: rgba(42,40,36,.58);
+      font-size: 11px;
+      font-style: normal;
+      font-weight: 800;
+      line-height: 1.15;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .city-saved-place-date {
+      align-self: start;
+      color: rgba(42,40,36,.48);
+      font-size: 10px;
+      font-weight: 900;
+      white-space: nowrap;
+    }
+    .city-saved-place-remove {
+      position: absolute;
+      top: 9px;
+      right: 9px;
+      display: grid;
+      width: 27px;
+      height: 27px;
+      place-items: center;
+      border: 0;
+      border-radius: 999px;
+      background: rgba(42,40,36,.08);
+      color: rgba(42,40,36,.62);
+      font: inherit;
+      font-size: 17px;
+      font-weight: 950;
+      line-height: 1;
+    }
+    .city-saved-places-empty {
+      display: grid;
+      gap: 7px;
+      border: 1px dashed #e3d5c0;
+      border-radius: 20px;
+      background: rgba(255,249,239,.52);
+      color: #7e766a;
+      padding: 18px;
+    }
+    .city-saved-places-empty strong {
+      color: #2a2824;
+      font-size: 15px;
+      font-weight: 950;
+    }
+    .city-saved-places-empty span {
+      font-size: 12px;
+      font-weight: 760;
+      line-height: 1.35;
+    }
     .city-real-tab-card-list {
       display: grid;
       gap: 10px;
@@ -363,6 +646,8 @@ function ensureStyles() {
       .city-real-tab-metrics { gap: 8px; }
       .city-real-tab-metric { min-height: 76px; padding: 12px 10px; }
       .city-real-tab-metric strong { font-size: 22px; }
+      .city-saved-place-main { grid-template-columns: 38px minmax(0, 1fr); }
+      .city-saved-place-date { display: none; }
     }
     @media (max-width: 350px) {
       .city-real-tab-metrics,
