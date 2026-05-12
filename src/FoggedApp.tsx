@@ -16,13 +16,7 @@ const favoriteCitiesStorageKey = 'cityapp:atlas-favorite-cities:v1'
 function AtlasFogProgress() {
   const [snapshot, setSnapshot] = useState(() => getAtlasFogSnapshot())
 
-  useEffect(() => {
-    const unsubscribe = subscribeAtlasFog(setSnapshot)
-
-    return () => {
-      unsubscribe()
-    }
-  }, [])
+  useEffect(() => subscribeAtlasFog(setSnapshot), [])
 
   return (
     <div
@@ -43,7 +37,6 @@ function AtlasFogToggle() {
     setIsVisible((current) => {
       const next = !current
       setAtlasFogVisible(next)
-
       return next
     })
   }
@@ -68,27 +61,22 @@ function setFavoriteCityIds(ids: string[]) {
   try {
     window.localStorage.setItem(favoriteCitiesStorageKey, JSON.stringify(Array.from(new Set(ids))))
   } catch {
-    // Favorites are a convenience feature; ignore storage failures.
+    // Favorites are optional; ignore storage failures.
   }
 }
 
 function getCityOptionId(button: HTMLButtonElement) {
   const title = button.querySelector('strong')?.textContent?.trim()
   const detail = button.querySelector('small')?.textContent?.trim()
-
   return [title, detail].filter(Boolean).join(' · ') || button.textContent?.replace(/[★☆]/g, '').replace(/\s+/g, ' ').trim() || ''
 }
 
 function setTextIfChanged(element: HTMLElement, text: string) {
-  if (element.textContent !== text) {
-    element.textContent = text
-  }
+  if (element.textContent !== text) element.textContent = text
 }
 
 function setAttributeIfChanged(element: HTMLElement, name: string, value: string) {
-  if (element.getAttribute(name) !== value) {
-    element.setAttribute(name, value)
-  }
+  if (element.getAttribute(name) !== value) element.setAttribute(name, value)
 }
 
 function useAtlasPageControlsVisibility() {
@@ -102,13 +90,10 @@ function useAtlasPageControlsVisibility() {
     }
 
     function scheduleUpdateVisibility() {
-      if (!frame) {
-        frame = window.requestAnimationFrame(updateVisibility)
-      }
+      if (!frame) frame = window.requestAnimationFrame(updateVisibility)
     }
 
     scheduleUpdateVisibility()
-
     const observer = new MutationObserver(scheduleUpdateVisibility)
     observer.observe(document.body, { childList: true, subtree: true })
 
@@ -135,21 +120,15 @@ function useAtlasMapLoadingAnimation() {
         loading.setAttribute('aria-live', 'polite')
         loading.innerHTML = '<span></span><strong>Loading map</strong>'
         frameElement.appendChild(loading)
-
-        const hideLoading = () => frameElement.classList.remove('is-loading')
-        frameElement.querySelector('.maplibregl-canvas')?.addEventListener('load', hideLoading, { once: true })
-        window.setTimeout(hideLoading, 950)
+        window.setTimeout(() => frameElement.classList.remove('is-loading'), 950)
       })
     }
 
     function scheduleLoadingOverlay() {
-      if (!frame) {
-        frame = window.requestAnimationFrame(ensureLoadingOverlay)
-      }
+      if (!frame) frame = window.requestAnimationFrame(ensureLoadingOverlay)
     }
 
     scheduleLoadingOverlay()
-
     const observer = new MutationObserver(scheduleLoadingOverlay)
     observer.observe(document.body, { childList: true, subtree: true })
 
@@ -169,9 +148,7 @@ function useAtlasButtonTweaks() {
       document.querySelectorAll<HTMLButtonElement>('.atlas-map-action-button').forEach((button) => {
         const text = button.textContent?.trim().toLowerCase()
 
-        if (text === 'reset') {
-          button.remove()
-        }
+        if (text === 'reset') button.remove()
 
         if (text === 'snap') {
           const group = button.closest<HTMLElement>('.atlas-map-action-top, .atlas-map-action-bottom, .atlas-map-action-left')
@@ -184,13 +161,10 @@ function useAtlasButtonTweaks() {
     }
 
     function scheduleButtonUpdate() {
-      if (!frame) {
-        frame = window.requestAnimationFrame(updateButtons)
-      }
+      if (!frame) frame = window.requestAnimationFrame(updateButtons)
     }
 
     scheduleButtonUpdate()
-
     const observer = new MutationObserver(scheduleButtonUpdate)
     observer.observe(document.body, { childList: true, subtree: true })
 
@@ -201,177 +175,75 @@ function useAtlasButtonTweaks() {
   }, [])
 }
 
-function useCityFavorites() {
-  useEffect(() => {
-    let frame = 0
-    let isUpdating = false
+function enhanceCitySelection() {
+  const panel = document.querySelector<HTMLElement>('.atlas-city-selection-panel')
+  const heading = panel?.querySelector<HTMLElement>('.atlas-city-selection-heading')
+  const cityList = panel?.querySelector<HTMLElement>('.atlas-city-list')
+  if (!panel || !heading || !cityList) return
 
-    function updateFavorites() {
-      frame = 0
+  heading.querySelector('p')?.remove()
 
-      if (isUpdating) {
-        return
-      }
-
-      const cityList = document.querySelector<HTMLElement>('.atlas-city-list')
-      if (!cityList) {
-        return
-      }
-
-      isUpdating = true
-
-      try {
-        const favoriteIds = getFavoriteCityIds()
-        const favoriteSet = new Set(favoriteIds)
-        const options = Array.from(cityList.querySelectorAll<HTMLButtonElement>('.atlas-city-option'))
-
-        options.forEach((option) => {
-          const cityId = option.dataset.favoriteCityId || getCityOptionId(option)
-          const isFavorite = favoriteSet.has(cityId)
-          const shouldHide = favoriteIds.length > 0 && !isFavorite
-
-          if (option.dataset.favoriteCityId !== cityId) {
-            option.dataset.favoriteCityId = cityId
-          }
-
-          option.classList.toggle('is-favorite', isFavorite)
-          option.hidden = shouldHide
-
-          let favoriteButton = option.querySelector<HTMLElement>('.atlas-city-favorite-button')
-          if (!favoriteButton) {
-            favoriteButton = document.createElement('span')
-            favoriteButton.className = 'atlas-city-favorite-button'
-            favoriteButton.setAttribute('role', 'button')
-            favoriteButton.setAttribute('tabindex', '0')
-            favoriteButton.addEventListener('click', (event) => {
-              event.preventDefault()
-              event.stopPropagation()
-              const currentIds = getFavoriteCityIds()
-              const id = option.dataset.favoriteCityId || getCityOptionId(option)
-              const nextIds = currentIds.includes(id) ? currentIds.filter((entry) => entry !== id) : [...currentIds, id]
-              setFavoriteCityIds(nextIds)
-              scheduleFavoritesUpdate()
-            })
-            favoriteButton.addEventListener('keydown', (event) => {
-              if (event.key === 'Enter' || event.key === ' ') {
-                event.preventDefault()
-                favoriteButton?.click()
-              }
-            })
-            option.appendChild(favoriteButton)
-          }
-
-          setTextIfChanged(favoriteButton, isFavorite ? '★' : '☆')
-          setAttributeIfChanged(favoriteButton, 'aria-label', isFavorite ? 'Remove favorite city' : 'Favorite city')
-        })
-
-        cityList.classList.toggle('has-favorites', favoriteIds.length > 0)
-      } finally {
-        isUpdating = false
-      }
-    }
-
-    function scheduleFavoritesUpdate() {
-      if (!frame) {
-        frame = window.requestAnimationFrame(updateFavorites)
-      }
-    }
-
-    scheduleFavoritesUpdate()
-
-    const observer = new MutationObserver(() => {
-      if (!isUpdating) {
-        scheduleFavoritesUpdate()
-      }
+  if (!heading.querySelector('.atlas-city-back-button')) {
+    const button = document.createElement('button')
+    button.className = 'atlas-city-back-button'
+    button.type = 'button'
+    button.setAttribute('aria-label', 'Back to atlas')
+    button.textContent = '‹'
+    button.addEventListener('click', () => {
+      const firstVisibleCity = Array.from(cityList.querySelectorAll<HTMLButtonElement>('.atlas-city-option')).find((option) => !option.hidden)
+      firstVisibleCity?.click()
     })
-    observer.observe(document.body, { childList: true, subtree: true })
+    heading.prepend(button)
+  }
 
-    return () => {
-      if (frame) window.cancelAnimationFrame(frame)
-      observer.disconnect()
+  const favoriteIds = getFavoriteCityIds()
+  const favoriteSet = new Set(favoriteIds)
+
+  cityList.querySelectorAll<HTMLButtonElement>('.atlas-city-option').forEach((option) => {
+    const cityId = option.dataset.favoriteCityId || getCityOptionId(option)
+    const isFavorite = favoriteSet.has(cityId)
+
+    if (option.dataset.favoriteCityId !== cityId) option.dataset.favoriteCityId = cityId
+    option.classList.toggle('is-favorite', isFavorite)
+    option.hidden = favoriteIds.length > 0 && !isFavorite
+
+    let favoriteButton = option.querySelector<HTMLElement>('.atlas-city-favorite-button')
+    if (!favoriteButton) {
+      favoriteButton = document.createElement('span')
+      favoriteButton.className = 'atlas-city-favorite-button'
+      favoriteButton.setAttribute('role', 'button')
+      favoriteButton.setAttribute('tabindex', '0')
+      favoriteButton.addEventListener('click', (event) => {
+        event.preventDefault()
+        event.stopPropagation()
+        const currentIds = getFavoriteCityIds()
+        const id = option.dataset.favoriteCityId || getCityOptionId(option)
+        const nextIds = currentIds.includes(id) ? currentIds.filter((entry) => entry !== id) : [...currentIds, id]
+        setFavoriteCityIds(nextIds)
+        enhanceCitySelection()
+      })
+      favoriteButton.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault()
+          favoriteButton?.click()
+        }
+      })
+      option.appendChild(favoriteButton)
     }
-  }, [])
+
+    setTextIfChanged(favoriteButton, isFavorite ? '★' : '☆')
+    setAttributeIfChanged(favoriteButton, 'aria-label', isFavorite ? 'Remove favorite city' : 'Favorite city')
+  })
+
+  cityList.classList.toggle('has-favorites', favoriteIds.length > 0)
 }
 
-function useCitySelectionBackButton() {
+function useCitySelectionEnhancements() {
   useEffect(() => {
-    let frame = 0
-    let isUpdating = false
-
-    function goBackToAtlas() {
-      const currentCityOption = document.querySelector<HTMLButtonElement>('.atlas-city-option.is-favorite, .atlas-city-option')
-
-      if (currentCityOption) {
-        currentCityOption.click()
-        return
-      }
-
-      const atlasTab = Array.from(document.querySelectorAll<HTMLButtonElement>('.atlas-tab'))
-        .find((button) => button.textContent?.toLowerCase().includes('atlas'))
-
-      if (atlasTab) {
-        atlasTab.click()
-        return
-      }
-
-      window.location.reload()
-    }
-
-    function ensureBackButton() {
-      frame = 0
-
-      if (isUpdating) {
-        return
-      }
-
-      const heading = document.querySelector<HTMLElement>('.atlas-city-selection-heading')
-      if (!heading) {
-        return
-      }
-
-      isUpdating = true
-
-      try {
-        heading.querySelector('p')?.remove()
-
-        if (heading.querySelector('.atlas-city-back-button')) {
-          return
-        }
-
-        const button = document.createElement('button')
-        button.className = 'atlas-city-back-button'
-        button.type = 'button'
-        button.setAttribute('aria-label', 'Back to atlas')
-        button.textContent = '‹'
-        button.addEventListener('click', goBackToAtlas)
-        heading.prepend(button)
-      } finally {
-        isUpdating = false
-      }
-    }
-
-    function scheduleBackButtonUpdate() {
-      if (!frame) {
-        frame = window.requestAnimationFrame(ensureBackButton)
-      }
-    }
-
-    scheduleBackButtonUpdate()
-
-    const observer = new MutationObserver(() => {
-      if (!isUpdating) {
-        scheduleBackButtonUpdate()
-      }
-    })
-    observer.observe(document.body, { childList: true, subtree: true })
-
-    return () => {
-      if (frame) window.cancelAnimationFrame(frame)
-      observer.disconnect()
-      document.querySelectorAll<HTMLButtonElement>('.atlas-city-back-button').forEach((button) => {
-        button.removeEventListener('click', goBackToAtlas)
-      })
-    }
+    console.info('[atlas-ui] city selection enhancer v2')
+    enhanceCitySelection()
+    const intervalId = window.setInterval(enhanceCitySelection, 300)
+    return () => window.clearInterval(intervalId)
   }, [])
 }
 
@@ -380,8 +252,7 @@ export default function FoggedApp() {
   useAtlasPageControlsVisibility()
   useAtlasMapLoadingAnimation()
   useAtlasButtonTweaks()
-  useCityFavorites()
-  useCitySelectionBackButton()
+  useCitySelectionEnhancements()
 
   useEffect(() => {
     let cancelled = false
@@ -390,9 +261,7 @@ export default function FoggedApp() {
     Promise.all([installAtlasUiTweaks(), installAtlasGeoFogBridge()])
       .catch((error: unknown) => console.error('[atlas-fog] bridge install failed', error))
       .finally(() => {
-        if (!cancelled) {
-          setIsFogBridgeReady(true)
-        }
+        if (!cancelled) setIsFogBridgeReady(true)
       })
 
     return () => {
