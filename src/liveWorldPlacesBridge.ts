@@ -255,7 +255,7 @@ function getDetail(tags: Record<string, string | undefined>, category: LivePlace
   return raw.replace(/_/g, ' ')
 }
 
-function placeFeatureFromElement(element: OverpassElement, center: { lng: number, lat: number }, boundary: Boundary | null): LivePlaceFeature | null {
+function placeFeatureFromElement(element: OverpassElement, boundary: Boundary | null): LivePlaceFeature | null {
   const lat = element.lat ?? element.center?.lat
   const lng = element.lon ?? element.center?.lon
   const name = element.tags?.name?.trim()
@@ -395,7 +395,7 @@ async function fetchLivePlaces(state: LivePlacesState, fetchKey: string, center:
   const payload = await response.json()
   const elements = Array.isArray(payload?.elements) ? payload.elements as OverpassElement[] : []
   const features = sortAndDedupe(
-    elements.map((element) => placeFeatureFromElement(element, center, state.boundary)).filter((feature): feature is LivePlaceFeature => Boolean(feature)),
+    elements.map((element) => placeFeatureFromElement(element, state.boundary)).filter((feature): feature is LivePlaceFeature => Boolean(feature)),
     center,
   )
   const collection: LivePlaceFeatureCollection = { type: 'FeatureCollection', features }
