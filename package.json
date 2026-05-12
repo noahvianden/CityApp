@@ -12,7 +12,8 @@
     "android:sync": "npm run build && cap sync android",
     "android:open": "npm run android:sync && cap open android",
     "android:apk": "npm run android:sync && cd android && gradlew.bat assembleDebug",
-    "android:run": "npm run android:sync && cap run android"
+    "android:run": "npm run android:sync && cap run android",
+    "android:log": "powershell -ExecutionPolicy Bypass -File scripts/run-and-log-android.ps1"
   },
   "dependencies": {
     "@capacitor/android": "^8.3.3",
