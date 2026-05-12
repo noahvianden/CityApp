@@ -21,10 +21,21 @@ type InstalledHandlers = {
   enter: () => void
   leave: () => void
 }
+type SavedPlace = {
+  id: string
+  name: string
+  category: LivePlaceCategory
+  detail: string
+  coordinate: Coordinate
+  addressLabel: string
+  googleMapsUrl: string
+  savedAt: number
+}
 type PlaceState = {
   savedIds: string[]
   visitedIds: string[]
   memoryIds: string[]
+  savedPlaces: SavedPlace[]
 }
 type ReverseAddressPayload = {
   address?: Record<string, string | undefined>
@@ -245,39 +256,115 @@ function featureToPlaceModel(map: MapInstance, feature: PlaceFeature): PlaceCard
   return { ...basePlace, googleMapsUrl: getGoogleMapsUrl(basePlace) }
 }
 
+function isSavedPlace(value: unknown): value is SavedPlace {
+  if (!value || typeof value !== 'object') return false
+  const entry = value as Partial<SavedPlace>
+  return (
+    typeof entry.id === 'string'
+    && typeof entry.name === 'string'
+    && typeof entry.category === 'string'
+    && typeof entry.detail === 'string'
+    && isCoordinate(entry.coordinate)
+    && typeof entry.addressLabel === 'string'
+    && typeof entry.googleMapsUrl === 'string'
+    && finite(entry.savedAt)
+  )
+}
+
+function dedupeSavedPlaces(places: SavedPlace[]) {
+  const seen = new Set<string>()
+  return places
+    .filter((place) => {
+      if (seen.has(place.id)) return false
+      seen.add(place.id)
+      return true
+    })
+    .sort((a, b) => b.savedAt - a.savedAt)
+}
+
 function getPlaceState(): PlaceState {
   try {
     const parsed = JSON.parse(window.localStorage.getItem(placeStateStorageKey) ?? '{}')
-    return {
-      savedIds: Array.isArray(parsed.savedIds) ? parsed.savedIds.filter((entry: unknown): entry is string => typeof entry === 'string') : [],
-      visitedIds: Array.isArray(parsed.visitedIds) ? parsed.visitedIds.filter((entry: unknown): entry is string => typeof entry === 'string') : [],
-      memoryIds: Array.isArray(parsed.memoryIds) ? parsed.memoryIds.filter((entry: unknown): entry is string => typeof entry === 'string') : [],
-    }
+    const savedIds = Array.isArray(parsed.savedIds) ? parsed.savedIds.filter((entry: unknown): entry is string => typeof entry === 'string') : []
+    const visitedIds = Array.isArray(parsed.visitedIds) ? parsed.visitedIds.filter((entry: unknown): entry is string => typeof entry === 'string') : []
+    const memoryIds = Array.isArray(parsed.memoryIds) ? parsed.memoryIds.filter((entry: unknown): entry is string => typeof entry === 'string') : []
+    const savedPlaces = Array.isArray(parsed.savedPlaces) ? dedupeSavedPlaces(parsed.savedPlaces.filter(isSavedPlace)) : []
+
+    return { savedIds, visitedIds, memoryIds, savedPlaces }
   } catch {
-    return { savedIds: [], visitedIds: [], memoryIds: [] }
+    return { savedIds: [], visitedIds: [], memoryIds: [], savedPlaces: [] }
   }
 }
 
 function setPlaceState(state: PlaceState) {
+  const savedIds = Array.from(new Set(state.savedIds))
+  const savedIdSet = new Set(savedIds)
+  const savedPlaces = dedupeSavedPlaces(state.savedPlaces.filter((place) => savedIdSet.has(place.id)))
+
   try {
     window.localStorage.setItem(placeStateStorageKey, JSON.stringify({
-      savedIds: Array.from(new Set(state.savedIds)),
+      savedIds,
       visitedIds: Array.from(new Set(state.visitedIds)),
       memoryIds: Array.from(new Set(state.memoryIds)),
+      savedPlaces,
     }))
   } catch {
     // Place card state is optional convenience UI.
   }
 }
 
-function toggleStateId(key: keyof PlaceState, id: string) {
+function toSavedPlace(place: PlaceCardModel, savedAt = Date.now()): SavedPlace {
+  return {
+    id: place.id,
+    name: place.name,
+    category: place.category,
+    detail: place.detail,
+    coordinate: place.coordinate,
+    addressLabel: place.addressLabel,
+    googleMapsUrl: place.googleMapsUrl,
+    savedAt,
+  }
+}
+
+function toggleSavedPlace(place: PlaceCardModel) {
+  const state = getPlaceState()
+  const isSaved = state.savedIds.includes(place.id)
+
+  if (isSaved) {
+    setPlaceState({
+      ...state,
+      savedIds: state.savedIds.filter((entry) => entry !== place.id),
+      savedPlaces: state.savedPlaces.filter((entry) => entry.id !== place.id),
+    })
+    return
+  }
+
+  setPlaceState({
+    ...state,
+    savedIds: [...state.savedIds, place.id],
+    savedPlaces: [toSavedPlace(place), ...state.savedPlaces.filter((entry) => entry.id !== place.id)],
+  })
+}
+
+function updateSavedPlaceSnapshot(place: PlaceCardModel) {
+  const state = getPlaceState()
+  if (!state.savedIds.includes(place.id)) return
+
+  const existing = state.savedPlaces.find((entry) => entry.id === place.id)
+  setPlaceState({
+    ...state,
+    savedPlaces: [toSavedPlace(place, existing?.savedAt), ...state.savedPlaces.filter((entry) => entry.id !== place.id)],
+  })
+}
+
+function toggleStateId(key: 'visitedIds' | 'memoryIds', id: string) {
   const state = getPlaceState()
   const currentIds = state[key]
   state[key] = currentIds.includes(id) ? currentIds.filter((entry) => entry !== id) : [...currentIds, id]
   setPlaceState(state)
 }
 
-function addStateId(key: keyof PlaceState, id: string) {
+function addStateId(key: 'visitedIds' | 'memoryIds', id: string) {
   const state = getPlaceState()
   if (!state[key].includes(id)) state[key] = [...state[key], id]
   setPlaceState(state)
@@ -363,7 +450,7 @@ function handleOverlayClick(event: MouseEvent) {
   }
 
   if (action === 'maps') openGoogleMaps(currentPlace)
-  if (action === 'save') toggleStateId('savedIds', currentPlace.id)
+  if (action === 'save') toggleSavedPlace(currentPlace)
   if (action === 'visited') toggleStateId('visitedIds', currentPlace.id)
   if (action === 'memory') addStateId('memoryIds', currentPlace.id)
 
@@ -375,11 +462,13 @@ function updatePlaceAddress(place: PlaceCardModel) {
     .then((addressLabel) => {
       if (!currentPlace || currentPlace.id !== place.id) return
       currentPlace = { ...currentPlace, addressLabel }
+      updateSavedPlaceSnapshot(currentPlace)
       renderPlaceCard(currentPlace)
     })
     .catch(() => {
       if (!currentPlace || currentPlace.id !== place.id) return
       currentPlace = { ...currentPlace, addressLabel: 'Street address unavailable' }
+      updateSavedPlaceSnapshot(currentPlace)
       renderPlaceCard(currentPlace)
     })
 }
