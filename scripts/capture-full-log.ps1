@@ -32,6 +32,26 @@ if (-not (Test-Path $adb)) {
   throw "adb not found at $adb"
 }
 
+$relevantPatterns = @(
+  'Capacitor/Console',
+  'CapacitorHttp',
+  'AndroidRuntime',
+  'FATAL EXCEPTION',
+  'ANR',
+  'atlas-',
+  'atlas-ui',
+  'atlas-fog',
+  'MapLibre',
+  'Nominatim',
+  'city selection',
+  'Unhandled',
+  'TypeError',
+  'ReferenceError',
+  'SyntaxError',
+  'Error:'
+)
+$relevantRegex = ($relevantPatterns -join '|')
+
 function Invoke-Adb {
   param([Parameter(ValueFromRemainingArguments = $true)][string[]]$Arguments)
 
@@ -57,6 +77,16 @@ function Get-AdbOutputAllowFailure {
 
   $output = & $adb @Arguments
   return $output
+}
+
+function Select-RelevantLogLines {
+  param([string[]]$Lines)
+
+  if (-not $Lines) {
+    return @()
+  }
+
+  return $Lines | Where-Object { $_ -match $relevantRegex }
 }
 
 Write-Host 'Removing old CityApp log file...'
@@ -95,9 +125,9 @@ $targetPid = ($pidOutput | Select-Object -First 1).Trim()
 if ($IncludeSystem) {
   Write-Host "Capturing all logcat for $Seconds seconds."
 } elseif ($targetPid) {
-  Write-Host "Capturing CityApp process log for $Seconds seconds. PID: $targetPid"
+  Write-Host "Capturing relevant CityApp log lines for $Seconds seconds. PID: $targetPid"
 } else {
-  Write-Host "Could not resolve CityApp PID. Capturing relevant WebView/Capacitor tags for $Seconds seconds."
+  Write-Host "Could not resolve CityApp PID. Capturing relevant device log lines for $Seconds seconds."
 }
 
 Start-Sleep -Seconds $Seconds
@@ -106,26 +136,11 @@ Write-Host "Writing filtered log to $fullLogPath..."
 if ($IncludeSystem) {
   $lines = Get-AdbOutput -Arguments @('-s', $targetSerial, 'logcat', '-d', '-v', 'time')
 } elseif ($targetPid) {
-  $lines = Get-AdbOutput -Arguments @('-s', $targetSerial, 'logcat', '-d', '-v', 'time', '--pid', $targetPid)
+  $appLines = Get-AdbOutput -Arguments @('-s', $targetSerial, 'logcat', '-d', '-v', 'time', '--pid', $targetPid)
+  $lines = Select-RelevantLogLines -Lines $appLines
 } else {
   $allLines = Get-AdbOutput -Arguments @('-s', $targetSerial, 'logcat', '-d', '-v', 'time')
-  $patterns = @(
-    'Capacitor',
-    'CityApp',
-    'cityprint',
-    'chromium',
-    'Console',
-    'WebView',
-    'atlas-',
-    'atlas\\[',
-    'MapLibre',
-    'Nominatim',
-    'FATAL EXCEPTION',
-    'AndroidRuntime',
-    'ANR'
-  )
-  $regex = ($patterns -join '|')
-  $lines = $allLines | Where-Object { $_ -match $regex }
+  $lines = Select-RelevantLogLines -Lines $allLines
 }
 
 if ($lines) {
