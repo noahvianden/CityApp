@@ -1,22 +1,36 @@
-.atlas-core {
-  --atlas-map-top: 98px;
-  --atlas-control-bottom: 98px;
-  --atlas-control-height: 38px;
-  --atlas-control-to-tab-gap: 22px;
-  --atlas-map-to-controls-gap: var(--atlas-control-to-tab-gap);
-  --atlas-map-height: min(
+:root {
+  --city-atlas-shell-height: 100svh;
+  --city-atlas-map-top: 105px;
+  --city-atlas-control-bottom: 98px;
+  --city-atlas-control-height: 38px;
+  --city-atlas-map-to-controls-gap: 22px;
+  --city-atlas-map-height: min(
     880px,
     max(
       360px,
       calc(
-        var(--atlas-shell-height)
-        - var(--atlas-map-top)
-        - var(--atlas-control-bottom)
-        - var(--atlas-control-height)
-        - var(--atlas-map-to-controls-gap)
+        var(--city-atlas-shell-height)
+        - var(--city-atlas-map-top)
+        - var(--city-atlas-control-bottom)
+        - var(--city-atlas-control-height)
+        - var(--city-atlas-map-to-controls-gap)
       )
     )
   );
+  --city-place-card-bottom: calc(
+    var(--city-atlas-shell-height)
+    - var(--city-atlas-map-top)
+    - var(--city-atlas-map-height)
+  );
+}
+
+.atlas-core {
+  --atlas-map-top: var(--city-atlas-map-top);
+  --atlas-control-bottom: var(--city-atlas-control-bottom);
+  --atlas-control-height: var(--city-atlas-control-height);
+  --atlas-control-to-tab-gap: var(--city-atlas-map-to-controls-gap);
+  --atlas-map-to-controls-gap: var(--city-atlas-map-to-controls-gap);
+  --atlas-map-height: var(--city-atlas-map-height);
 }
 
 .atlas-joycon {
@@ -33,20 +47,24 @@
   z-index: 230 !important;
 }
 
+.atlas-fog-progress span {
+  flex-direction: row-reverse !important;
+}
+
 @media (max-height: 740px) {
-  .atlas-core {
-    --atlas-map-top: 94px;
-    --atlas-map-to-controls-gap: 18px;
-    --atlas-map-height: min(
+  :root {
+    --city-atlas-map-top: 101px;
+    --city-atlas-map-to-controls-gap: 18px;
+    --city-atlas-map-height: min(
       680px,
       max(
         330px,
         calc(
-          var(--atlas-shell-height)
-          - var(--atlas-map-top)
-          - var(--atlas-control-bottom)
-          - var(--atlas-control-height)
-          - var(--atlas-map-to-controls-gap)
+          var(--city-atlas-shell-height)
+          - var(--city-atlas-map-top)
+          - var(--city-atlas-control-bottom)
+          - var(--city-atlas-control-height)
+          - var(--city-atlas-map-to-controls-gap)
         )
       )
     );
@@ -54,12 +72,12 @@
 }
 
 .city-place-discovery-card-shell {
-  bottom: calc(84px + env(safe-area-inset-bottom)) !important;
+  bottom: max(12px, var(--city-place-card-bottom)) !important;
   left: 12px !important;
   right: 12px !important;
   width: auto !important;
   max-width: min(420px, calc(100vw - 24px)) !important;
-  max-height: calc(100svh - 116px - env(safe-area-inset-top)) !important;
+  max-height: min(calc(var(--city-atlas-map-height) - 24px), calc(100svh - 116px - env(safe-area-inset-top))) !important;
   display: flex !important;
   align-items: flex-end !important;
   pointer-events: none !important;
@@ -71,7 +89,7 @@
 
 .city-place-discovery-card {
   width: 100% !important;
-  max-height: calc(100svh - 116px - env(safe-area-inset-top) - env(safe-area-inset-bottom)) !important;
+  max-height: min(calc(var(--city-atlas-map-height) - 24px), calc(100svh - 116px - env(safe-area-inset-top) - env(safe-area-inset-bottom))) !important;
   overflow-y: auto !important;
   overscroll-behavior: contain !important;
   pointer-events: auto !important;
@@ -87,7 +105,7 @@
 }
 
 .city-place-card-description {
-  font-size: clamp(12px, 3.6vw, 13px) !important;
+  display: none !important;
 }
 
 .city-place-google-overlay {
@@ -147,13 +165,6 @@
     padding: 13px !important;
   }
 
-  .city-place-card-description {
-    display: -webkit-box !important;
-    -webkit-line-clamp: 2;
-    -webkit-box-orient: vertical;
-    overflow: hidden !important;
-  }
-
   .city-place-card-tags span:nth-child(n+5) {
     display: none !important;
   }
@@ -163,4 +174,8 @@
   .city-place-card-tags {
     display: none !important;
   }
+}
+
+.city-place-card-description {
+  display: none !important;
 }
