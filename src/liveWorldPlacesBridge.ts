@@ -43,8 +43,9 @@ const pointSourceId = 'atlas-point-source'
 const livePlacesSourceId = 'atlas-live-world-places-source'
 const livePlacesCircleLayerId = 'atlas-live-world-places-circle'
 const livePlacesLabelLayerId = 'atlas-live-world-places-label'
-const storagePrefix = 'cityapp:live-world-places:v2:'
+const storagePrefix = 'cityapp:live-world-places:v3:'
 const overpassEndpoint = 'https://overpass-api.de/api/interpreter'
+const snapPlaceZoom = 15.25
 const livePlaceRadiusMeters = 1500
 const livePlaceLimit = 48
 const cacheTtlMs = 12 * 60 * 60 * 1000
@@ -193,8 +194,9 @@ function metersBetween(a: { lng: number, lat: number }, b: { lng: number, lat: n
 
 function getStateCenter(state: LivePlacesState) {
   const mapCenter = state.map.getCenter()
-  const center = state.activePoint ?? { lng: mapCenter.lng, lat: mapCenter.lat }
+  const center = { lng: mapCenter.lng, lat: mapCenter.lat }
   if (insideBoundary(center, state.boundary)) return center
+  if (state.activePoint && insideBoundary(state.activePoint, state.boundary)) return state.activePoint
   if (state.bounds) {
     return { lng: (state.bounds.west + state.bounds.east) / 2, lat: (state.bounds.south + state.bounds.north) / 2 }
   }
@@ -202,7 +204,7 @@ function getStateCenter(state: LivePlacesState) {
 }
 
 function getFetchKey(state: LivePlacesState, center: { lng: number, lat: number }) {
-  return `${state.cityKey ?? 'city'}:${Math.round(center.lat * 1000) / 1000}:${Math.round(center.lng * 1000) / 1000}`
+  return `${state.cityKey ?? 'city'}:${Math.round(center.lat * 1000) / 1000}:${Math.round(center.lng * 1000) / 1000}:z${Math.floor(state.map.getZoom() * 10) / 10}`
 }
 
 function buildOverpassQuery(center: { lng: number, lat: number }) {
@@ -324,7 +326,7 @@ function ensureLivePlaceLayers(map: MapInstance) {
       id: livePlacesCircleLayerId,
       type: 'circle',
       source: livePlacesSourceId,
-      minzoom: 12,
+      minzoom: snapPlaceZoom,
       paint: {
         'circle-color': [
           'match', ['get', 'category'],
@@ -340,10 +342,10 @@ function ensureLivePlaceLayers(map: MapInstance) {
           'landmark', '#d9654f',
           '#2f8f7f',
         ],
-        'circle-opacity': ['interpolate', ['linear'], ['zoom'], 12, 0.72, 15, 0.94],
-        'circle-radius': ['interpolate', ['linear'], ['zoom'], 12, 4, 15, 7, 18, 10],
+        'circle-opacity': ['interpolate', ['linear'], ['zoom'], snapPlaceZoom, 0.72, 16, 0.94],
+        'circle-radius': ['interpolate', ['linear'], ['zoom'], snapPlaceZoom, 4, 16, 7, 18, 10],
         'circle-stroke-color': '#fffaf1',
-        'circle-stroke-width': ['interpolate', ['linear'], ['zoom'], 12, 1, 16, 2],
+        'circle-stroke-width': ['interpolate', ['linear'], ['zoom'], snapPlaceZoom, 1, 16, 2],
       },
     })
   }
@@ -353,13 +355,13 @@ function ensureLivePlaceLayers(map: MapInstance) {
       id: livePlacesLabelLayerId,
       type: 'symbol',
       source: livePlacesSourceId,
-      minzoom: 14,
+      minzoom: snapPlaceZoom,
       layout: {
         'text-anchor': 'top',
         'text-field': ['get', 'name'],
         'text-font': ['Amazon Ember Bold,Noto Sans Bold'],
         'text-offset': [0, 0.85],
-        'text-size': ['interpolate', ['linear'], ['zoom'], 14, 10, 17, 13],
+        'text-size': ['interpolate', ['linear'], ['zoom'], snapPlaceZoom, 10, 17, 13],
         'text-variable-anchor': ['top', 'bottom', 'left', 'right'],
         'text-radial-offset': 0.55,
         'text-optional': true,
@@ -411,6 +413,8 @@ function scheduleLivePlaceRefresh(state: LivePlacesState, force = false) {
     state.lastFetchKey = null
   }
 
+  if (state.map.getZoom() < snapPlaceZoom) return
+
   const center = getStateCenter(state)
   if (!insideBoundary(center, state.boundary) || state.isFetching) return
 
@@ -422,7 +426,7 @@ function scheduleLivePlaceRefresh(state: LivePlacesState, force = false) {
     state.lastFetchKey = fetchKey
     state.lastFetchAt = Date.now()
     setLivePlaces(state.map, cached)
-    console.info(`[atlas-live-places] cache ${JSON.stringify({ places: cached.features.length, cityKey: state.cityKey, radiusM: livePlaceRadiusMeters })}`)
+    console.info(`[atlas-live-places] cache ${JSON.stringify({ places: cached.features.length, cityKey: state.cityKey, radiusM: livePlaceRadiusMeters, snapZoom: snapPlaceZoom, center })}`)
     return
   }
 
@@ -433,7 +437,7 @@ function scheduleLivePlaceRefresh(state: LivePlacesState, force = false) {
     .then((collection) => {
       if (state.lastFetchKey !== fetchKey) return
       setLivePlaces(state.map, collection)
-      console.info(`[atlas-live-places] loaded ${JSON.stringify({ places: collection.features.length, cityKey: state.cityKey, radiusM: livePlaceRadiusMeters, center })}`)
+      console.info(`[atlas-live-places] loaded ${JSON.stringify({ places: collection.features.length, cityKey: state.cityKey, radiusM: livePlaceRadiusMeters, snapZoom: snapPlaceZoom, center })}`)
     })
     .catch((error: unknown) => {
       console.warn('[atlas-live-places] request failed', error)
@@ -459,9 +463,8 @@ function wrapPointSource(map: MapInstance) {
     const point = extractPoint(data)
     if (!point) return
     const state = getState(map)
-    const previous = state.activePoint
     state.activePoint = point
-    if (!previous || metersBetween(previous, point) > 800) scheduleLivePlaceRefresh(state, true)
+    scheduleLivePlaceRefresh(state, true)
   }
 }
 
