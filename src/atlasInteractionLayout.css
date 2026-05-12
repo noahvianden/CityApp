@@ -1,0 +1,135 @@
+.atlas-core {
+  --atlas-map-height: min(720px, max(360px, calc(var(--atlas-shell-height) - 245px)));
+}
+
+.atlas-joycon {
+  top: calc(var(--atlas-map-top) + 12px) !important;
+  right: 25px !important;
+  bottom: auto !important;
+  z-index: 90 !important;
+}
+
+.atlas-map-frame.fullscreen + .atlas-joycon {
+  position: fixed !important;
+  top: calc(12px + env(safe-area-inset-top)) !important;
+  right: 12px !important;
+  z-index: 230 !important;
+}
+
+@media (max-height: 740px) {
+  .atlas-core {
+    --atlas-map-height: min(620px, max(330px, calc(var(--atlas-shell-height) - 235px)));
+  }
+}
+
+.city-place-discovery-card-shell {
+  bottom: calc(84px + env(safe-area-inset-bottom)) !important;
+  left: 12px !important;
+  right: 12px !important;
+  width: auto !important;
+  max-width: min(420px, calc(100vw - 24px)) !important;
+  max-height: calc(100svh - 116px - env(safe-area-inset-top)) !important;
+  display: flex !important;
+  align-items: flex-end !important;
+  pointer-events: none !important;
+}
+
+.city-place-discovery-card-shell[hidden] {
+  display: none !important;
+}
+
+.city-place-discovery-card {
+  width: 100% !important;
+  max-height: calc(100svh - 116px - env(safe-area-inset-top) - env(safe-area-inset-bottom)) !important;
+  overflow-y: auto !important;
+  overscroll-behavior: contain !important;
+  pointer-events: auto !important;
+  border-radius: clamp(22px, 6vw, 28px) !important;
+  gap: clamp(9px, 2.5vw, 12px) !important;
+  padding: clamp(14px, 4.5vw, 19px) !important;
+  scrollbar-width: thin;
+}
+
+.city-place-discovery-card h2 {
+  font-size: clamp(22px, 7vw, 28px) !important;
+  line-height: .98 !important;
+}
+
+.city-place-card-description {
+  font-size: clamp(12px, 3.6vw, 13px) !important;
+}
+
+.city-place-google-overlay {
+  grid-template-columns: minmax(66px, 78px) minmax(0, 1fr) !important;
+  min-height: clamp(62px, 19vw, 74px) !important;
+  padding: clamp(8px, 2.8vw, 10px) !important;
+}
+
+.city-place-mini-map {
+  height: clamp(46px, 15vw, 54px) !important;
+}
+
+.city-place-card-tags {
+  gap: 7px !important;
+}
+
+.city-place-card-tags span {
+  min-width: 0 !important;
+  padding: 7px 10px !important;
+}
+
+.city-place-card-actions {
+  grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+  gap: 8px !important;
+}
+
+.city-place-card-primary,
+.city-place-card-secondary {
+  min-width: 0 !important;
+  min-height: 40px !important;
+  padding: 0 8px !important;
+  white-space: nowrap !important;
+}
+
+@media (min-width: 760px) {
+  .city-place-discovery-card-shell {
+    left: 28px !important;
+    right: auto !important;
+    width: 390px !important;
+    max-width: 390px !important;
+  }
+}
+
+@media (max-width: 350px) {
+  .city-place-card-actions {
+    grid-template-columns: 1fr !important;
+  }
+
+  .city-place-google-overlay {
+    grid-template-columns: 62px minmax(0, 1fr) !important;
+  }
+}
+
+@media (max-height: 680px) {
+  .city-place-discovery-card {
+    gap: 8px !important;
+    padding: 13px !important;
+  }
+
+  .city-place-card-description {
+    display: -webkit-box !important;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden !important;
+  }
+
+  .city-place-card-tags span:nth-child(n+5) {
+    display: none !important;
+  }
+}
+
+@media (max-height: 600px) {
+  .city-place-card-tags {
+    display: none !important;
+  }
+}
