@@ -6,6 +6,7 @@ import {
   setAtlasFogVisible,
   subscribeAtlasFog,
 } from './atlasGeoFogBridge'
+import { installAtlasUiTweaks } from './atlasUiTweaks'
 import App from './App'
 import './atlasFogOverlay.css'
 
@@ -26,7 +27,7 @@ function AtlasFogProgress() {
       style={{ '--atlas-fog-progress': `${snapshot.progress}%` } as CSSProperties}
       aria-live="polite"
     >
-      <span><small>revealed</small><b>{snapshot.progress}%</b></span>
+      <span><b>{snapshot.progress}%</b><small>revealed</small></span>
       <strong>{snapshot.revealedPoints ? 'Keep exploring to reveal more of the city.' : 'Move to start revealing the city.'}</strong>
     </div>
   )
@@ -51,13 +52,40 @@ function AtlasFogToggle() {
   )
 }
 
+function useAtlasPageControlsVisibility() {
+  useEffect(() => {
+    function updateVisibility() {
+      const shouldShow = Boolean(document.querySelector('.atlas-map')) && !document.querySelector('.atlas-city-selection-panel')
+      document.body.classList.toggle('atlas-fog-controls-visible', shouldShow)
+    }
+
+    updateVisibility()
+
+    const observer = new MutationObserver(updateVisibility)
+    observer.observe(document.body, { childList: true, subtree: true })
+
+    return () => {
+      observer.disconnect()
+      document.body.classList.remove('atlas-fog-controls-visible')
+    }
+  }, [])
+}
+
 function useCitySelectionBackButton() {
   useEffect(() => {
     function goBackToAtlas() {
-      const firstCityOption = document.querySelector<HTMLButtonElement>('.atlas-city-option')
+      const currentCityOption = document.querySelector<HTMLButtonElement>('.atlas-city-option')
 
-      if (firstCityOption) {
-        firstCityOption.click()
+      if (currentCityOption) {
+        currentCityOption.click()
+        return
+      }
+
+      const atlasTab = Array.from(document.querySelectorAll<HTMLButtonElement>('.atlas-tab'))
+        .find((button) => button.textContent?.toLowerCase().includes('atlas'))
+
+      if (atlasTab) {
+        atlasTab.click()
         return
       }
 
@@ -96,12 +124,13 @@ function useCitySelectionBackButton() {
 
 export default function FoggedApp() {
   const [isFogBridgeReady, setIsFogBridgeReady] = useState(false)
+  useAtlasPageControlsVisibility()
   useCitySelectionBackButton()
 
   useEffect(() => {
     let cancelled = false
 
-    installAtlasGeoFogBridge()
+    Promise.all([installAtlasUiTweaks(), installAtlasGeoFogBridge()])
       .catch((error: unknown) => console.error('[atlas-fog] bridge install failed', error))
       .finally(() => {
         if (!cancelled) {
