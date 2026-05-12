@@ -141,8 +141,16 @@ function cleanupCityListAfterClose() {
   setCityListPruned(true)
 }
 
+function getCityOptionTitle(button: HTMLButtonElement) {
+  return button.querySelector('strong')?.textContent?.trim() ?? ''
+}
+
+function normalizeCityName(value: string) {
+  return value.replace(/\s+/g, ' ').trim().toLocaleLowerCase()
+}
+
 function getCityOptionId(button: HTMLButtonElement) {
-  const title = button.querySelector('strong')?.textContent?.trim()
+  const title = getCityOptionTitle(button)
   const detail = button.querySelector('small')?.textContent?.trim()
   return [title, detail].filter(Boolean).join(' · ') || button.textContent?.replace(/[★☆]/g, '').replace(/\s+/g, ' ').trim() || ''
 }
@@ -282,6 +290,7 @@ function openSearchedCityFromEntry(query: string) {
 
       window.setTimeout(() => {
         delete searchForm.dataset.atlasAllowSwitch
+        cleanupCityListAfterClose()
       }, 0)
     })
   }
@@ -318,6 +327,31 @@ function createPendingSearchOption(city: PendingSearchCity) {
   return option
 }
 
+function reconcileRealAndPendingCityEntries(cityList: HTMLElement) {
+  const pendingCities = getPendingSearchCities()
+  if (!pendingCities.length) return
+
+  const favoriteIds = new Set(getFavoriteCityIds())
+  const stableOptions = Array.from(cityList.querySelectorAll<HTMLButtonElement>('.atlas-city-option:not(.atlas-pending-search-city)'))
+  let nextPendingCities = pendingCities
+
+  for (const city of pendingCities) {
+    const normalizedName = normalizeCityName(city.name)
+    const realOption = stableOptions.find((option) => normalizeCityName(getCityOptionTitle(option)) === normalizedName)
+
+    if (!realOption) continue
+
+    realOption.dataset.favoriteCityId = city.id
+    realOption.classList.toggle('is-favorite', favoriteIds.has(city.id))
+    cityList.querySelector<HTMLButtonElement>(`.atlas-pending-search-city[data-favorite-city-id="${CSS.escape(city.id)}"]`)?.remove()
+    nextPendingCities = nextPendingCities.filter((entry) => entry.id !== city.id)
+  }
+
+  if (nextPendingCities.length !== pendingCities.length) {
+    setPendingSearchCities(nextPendingCities)
+  }
+}
+
 function renderPendingSearchCities(cityList: HTMLElement) {
   const pendingCities = getPendingSearchCities()
   const pendingIds = new Set(pendingCities.map((city) => city.id))
@@ -342,9 +376,11 @@ function renderPendingSearchCities(cityList: HTMLElement) {
     option.querySelector('small')!.textContent = city.description
   }
 
+  reconcileRealAndPendingCityEntries(cityList)
+
   const emptyHistory = cityList.querySelector<HTMLElement>('.atlas-city-empty-history')
-  if (emptyHistory) emptyHistory.hidden = pendingCities.length > 0
-  cityList.classList.toggle('has-search-results', pendingCities.length > 0)
+  if (emptyHistory) emptyHistory.hidden = getPendingSearchCities().length > 0
+  cityList.classList.toggle('has-search-results', getPendingSearchCities().length > 0)
 }
 
 function useAtlasPageControlsVisibility() {
@@ -459,6 +495,7 @@ function enhanceCitySelection() {
     button.setAttribute('aria-label', 'Back to atlas')
     button.textContent = '‹'
     button.addEventListener('click', () => {
+      cleanupCityListAfterClose()
       const firstVisibleCity = Array.from(cityList.querySelectorAll<HTMLButtonElement>('.atlas-city-option')).find((option) => !option.hidden)
       firstVisibleCity?.click()
     })
@@ -542,6 +579,7 @@ function useCitySearchAsEntry() {
             ? `${city.name} is already listed below.`
             : `${city.name} was added below. Star it to keep it listed.`,
         )
+        setCityListPruned(false)
         enhanceCitySelection()
       } catch {
         setSearchEntryMessage(form, 'Search failed. Please try again.')
@@ -558,7 +596,7 @@ function useCitySearchAsEntry() {
 
 function useCitySelectionEnhancements() {
   useEffect(() => {
-    console.info('[atlas-ui] city selection enhancer v5')
+    console.info('[atlas-ui] city selection enhancer v6')
     let wasCitySelectionOpen = Boolean(document.querySelector('.atlas-city-selection-panel'))
 
     function tickCitySelectionEnhancements() {
