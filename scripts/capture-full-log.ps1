@@ -33,17 +33,15 @@ if (-not (Test-Path $adb)) {
 }
 
 $relevantPatterns = @(
-  'Capacitor/Console',
-  'CapacitorHttp',
   'AndroidRuntime',
   'FATAL EXCEPTION',
   'ANR',
-  'atlas-',
-  'atlas-ui',
-  'atlas-fog',
-  'MapLibre',
-  'Nominatim',
-  'city selection',
+  '\[atlas-ui\]',
+  '\[atlas-fog\]',
+  '\[atlas-search\]',
+  'city selection enhancer',
+  'No city boundary found',
+  'Search failed',
   'Unhandled',
   'TypeError',
   'ReferenceError',
@@ -51,6 +49,7 @@ $relevantPatterns = @(
   'Error:'
 )
 $relevantRegex = ($relevantPatterns -join '|')
+$noiseRegex = 'methodData:|"geojson"|"coordinates"|Expected value to be of type number|There is no style added to the map|\[object Object\]'
 
 function Invoke-Adb {
   param([Parameter(ValueFromRemainingArguments = $true)][string[]]$Arguments)
@@ -86,7 +85,7 @@ function Select-RelevantLogLines {
     return @()
   }
 
-  return $Lines | Where-Object { $_ -match $relevantRegex }
+  return $Lines | Where-Object { ($_ -match $relevantRegex) -and ($_ -notmatch $noiseRegex) }
 }
 
 Write-Host 'Removing old CityApp log file...'
