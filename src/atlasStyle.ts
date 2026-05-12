@@ -1,9 +1,21 @@
 import type { StyleSpecification } from 'maplibre-gl'
 
-const cityStyleUrl = `${import.meta.env.BASE_URL}city-style.json`
+const cityStylePath = `${import.meta.env.BASE_URL}city-style.json`
 const numericComparisonOperators = new Set(['<', '<=', '>', '>='])
 
 let cachedCityStyle: Promise<StyleSpecification> | null = null
+let originalFetch: typeof window.fetch | null = null
+let isFetchPatched = false
+
+function isCityStyleRequest(input: RequestInfo | URL) {
+  const value = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
+
+  try {
+    return new URL(value, window.location.href).pathname.endsWith('/city-style.json')
+  } catch {
+    return value.endsWith('city-style.json')
+  }
+}
 
 function isExpression(value: unknown): value is unknown[] {
   return Array.isArray(value) && typeof value[0] === 'string'
@@ -68,7 +80,9 @@ function sanitizeCityStyle(style: StyleSpecification): StyleSpecification {
 }
 
 export function loadCityStyle() {
-  cachedCityStyle ??= fetch(cityStyleUrl)
+  const fetcher = originalFetch ?? window.fetch.bind(window)
+
+  cachedCityStyle ??= fetcher(cityStylePath)
     .then((response) => {
       if (!response.ok) {
         throw new Error(`Could not load city style: ${response.status}`)
@@ -79,4 +93,24 @@ export function loadCityStyle() {
     .then(sanitizeCityStyle)
 
   return cachedCityStyle
+}
+
+export function installCityStyleFetchPatch() {
+  if (isFetchPatched || typeof window === 'undefined' || typeof window.fetch !== 'function') {
+    return
+  }
+
+  originalFetch = window.fetch.bind(window)
+  window.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+    if (!isCityStyleRequest(input)) {
+      return originalFetch!(input, init)
+    }
+
+    return loadCityStyle().then((style) => new Response(JSON.stringify(style), {
+      headers: { 'content-type': 'application/json' },
+      status: 200,
+    }))
+  }) as typeof window.fetch
+
+  isFetchPatched = true
 }
