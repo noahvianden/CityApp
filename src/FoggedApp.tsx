@@ -157,32 +157,34 @@ function openSearchedCityFromEntry(query: string) {
   const form = document.querySelector<HTMLFormElement>('.atlas-city-search')
   if (!form) return
 
+  const searchForm = form
+
   function submitWhenInputExists() {
-    const input = form.querySelector<HTMLInputElement>('input')
+    const input = searchForm.querySelector<HTMLInputElement>('input')
 
     if (!input) {
-      form.click()
+      searchForm.click()
       window.requestAnimationFrame(submitWhenInputExists)
       return
     }
 
     setControlledInputValue(input, query)
-    form.dataset.atlasAllowSwitch = 'true'
+    searchForm.dataset.atlasAllowSwitch = 'true'
 
     window.requestAnimationFrame(() => {
-      if (typeof form.requestSubmit === 'function') {
-        form.requestSubmit()
+      if (typeof searchForm.requestSubmit === 'function') {
+        searchForm.requestSubmit()
       } else {
-        form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
+        searchForm.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
       }
 
       window.setTimeout(() => {
-        delete form.dataset.atlasAllowSwitch
+        delete searchForm.dataset.atlasAllowSwitch
       }, 0)
     })
   }
 
-  form.click()
+  searchForm.click()
   submitWhenInputExists()
 }
 
@@ -411,7 +413,9 @@ function useCitySearchAsEntry() {
       if (!form?.classList.contains('atlas-city-search') || form.dataset.atlasAllowSwitch === 'true') return
 
       const input = form.querySelector<HTMLInputElement>('input')
-      const query = input?.value.trim() ?? ''
+      if (!input) return
+
+      const query = input.value.trim()
       if (!query) return
 
       event.preventDefault()
