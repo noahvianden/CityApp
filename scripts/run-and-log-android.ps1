@@ -59,6 +59,15 @@ function Get-AdbOutput {
   return $output
 }
 
+function Test-LogContains {
+  param(
+    [string[]]$Lines,
+    [string]$Pattern
+  )
+
+  return [bool]($Lines | Select-String -SimpleMatch $Pattern | Select-Object -First 1)
+}
+
 if (-not $NoBuild) {
   Write-Host 'Baue und synchronisiere Android-Projekt...'
   Push-Location $repoRoot
@@ -70,6 +79,8 @@ if (-not $NoBuild) {
   } finally {
     Pop-Location
   }
+} else {
+  Write-Warning 'NoBuild ist aktiv. Die App kann ein altes Web-Bundle verwenden.'
 }
 
 Write-Host 'Pruefe verbundene Android-Geraete...'
@@ -102,6 +113,8 @@ if (-not $NoInstall) {
   } finally {
     Pop-Location
   }
+} else {
+  Write-Warning 'NoInstall ist aktiv. Das Geraet kann eine alte APK ausfuehren.'
 }
 
 $outputDirectory = Split-Path -Parent $outputPath
@@ -129,6 +142,16 @@ if ($lines) {
   $lines | Set-Content -Path $outputPath -Encoding utf8
 } else {
   'Keine logcat-Zeilen erfasst. Pruefe, ob das Geraet verbunden ist und logcat Ausgaben liefert.' | Set-Content -Path $outputPath -Encoding utf8
+}
+
+if ($lines) {
+  if (Test-LogContains -Lines $lines -Pattern '[atlas-ui] city selection enhancer v8') {
+    Write-Warning 'Stale Web-Bundle erkannt: Log zeigt noch city selection enhancer v8. Fuehre ohne -NoBuild/-NoInstall aus und installiere die neue Debug-App.'
+  }
+
+  if (-not (Test-LogContains -Lines $lines -Pattern '[atlas-live-places] bridge installed')) {
+    Write-Warning 'Live-Places-Bridge wurde im Log nicht gefunden. Das APK enthaelt wahrscheinlich nicht das aktuelle Web-Bundle oder die App ist vor dem Bridge-Start abgestuerzt.'
+  }
 }
 
 Write-Host "Fertig. Logdatei: $outputPath"
