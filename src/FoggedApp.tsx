@@ -12,6 +12,14 @@ import App from './App'
 import './atlasFogOverlay.css'
 
 const favoriteCitiesStorageKey = 'cityapp:atlas-favorite-cities:v1'
+const pendingSearchCitiesStorageKey = 'cityapp:atlas-pending-search-cities:v1'
+
+type PendingSearchCity = {
+  id: string
+  name: string
+  description: string
+  query: string
+}
 
 function AtlasFogProgress() {
   const [snapshot, setSnapshot] = useState(() => getAtlasFogSnapshot())
@@ -65,6 +73,50 @@ function setFavoriteCityIds(ids: string[]) {
   }
 }
 
+function getPendingSearchCities() {
+  try {
+    const parsed = JSON.parse(window.sessionStorage.getItem(pendingSearchCitiesStorageKey) ?? '[]')
+    return Array.isArray(parsed)
+      ? parsed.filter((entry): entry is PendingSearchCity => (
+        entry
+        && typeof entry === 'object'
+        && typeof entry.id === 'string'
+        && typeof entry.name === 'string'
+        && typeof entry.description === 'string'
+        && typeof entry.query === 'string'
+      ))
+      : []
+  } catch {
+    return []
+  }
+}
+
+function setPendingSearchCities(cities: PendingSearchCity[]) {
+  try {
+    window.sessionStorage.setItem(pendingSearchCitiesStorageKey, JSON.stringify(cities))
+  } catch {
+    // Search entries are session-only convenience UI; ignore storage failures.
+  }
+}
+
+function addPendingSearchCity(query: string) {
+  const normalizedQuery = query.replace(/\s+/g, ' ').trim()
+  if (!normalizedQuery) return null
+
+  const nextCity: PendingSearchCity = {
+    id: `search:${normalizedQuery.toLocaleLowerCase()}`,
+    name: normalizedQuery,
+    description: 'Search result · tap to open atlas',
+    query: normalizedQuery,
+  }
+
+  const withoutDuplicate = getPendingSearchCities().filter((city) => city.id !== nextCity.id)
+  const nextCities = [nextCity, ...withoutDuplicate].slice(0, 8)
+  setPendingSearchCities(nextCities)
+
+  return nextCity
+}
+
 function getCityOptionId(button: HTMLButtonElement) {
   const title = button.querySelector('strong')?.textContent?.trim()
   const detail = button.querySelector('small')?.textContent?.trim()
@@ -77,6 +129,118 @@ function setTextIfChanged(element: HTMLElement, text: string) {
 
 function setAttributeIfChanged(element: HTMLElement, name: string, value: string) {
   if (element.getAttribute(name) !== value) element.setAttribute(name, value)
+}
+
+function setControlledInputValue(input: HTMLInputElement, value: string) {
+  const descriptor = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')
+  descriptor?.set?.call(input, value)
+  if (input.value !== value) input.value = value
+  input.dispatchEvent(new Event('input', { bubbles: true }))
+  input.dispatchEvent(new Event('change', { bubbles: true }))
+}
+
+function setSearchEntryMessage(form: HTMLFormElement, text: string) {
+  const panel = form.closest<HTMLElement>('.atlas-city-selection-panel')
+  if (!panel) return
+
+  let message = panel.querySelector<HTMLElement>('.atlas-pending-search-message')
+  if (!message) {
+    message = document.createElement('p')
+    message.className = 'atlas-city-search-message atlas-pending-search-message'
+    form.insertAdjacentElement('afterend', message)
+  }
+
+  setTextIfChanged(message, text)
+}
+
+function openSearchedCityFromEntry(query: string) {
+  const form = document.querySelector<HTMLFormElement>('.atlas-city-search')
+  if (!form) return
+
+  function submitWhenInputExists() {
+    const input = form.querySelector<HTMLInputElement>('input')
+
+    if (!input) {
+      form.click()
+      window.requestAnimationFrame(submitWhenInputExists)
+      return
+    }
+
+    setControlledInputValue(input, query)
+    form.dataset.atlasAllowSwitch = 'true'
+
+    window.requestAnimationFrame(() => {
+      if (typeof form.requestSubmit === 'function') {
+        form.requestSubmit()
+      } else {
+        form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
+      }
+
+      window.setTimeout(() => {
+        delete form.dataset.atlasAllowSwitch
+      }, 0)
+    })
+  }
+
+  form.click()
+  submitWhenInputExists()
+}
+
+function createPendingSearchOption(city: PendingSearchCity) {
+  const option = document.createElement('button')
+  option.className = 'atlas-city-option atlas-pending-search-city'
+  option.type = 'button'
+  option.dataset.favoriteCityId = city.id
+  option.dataset.pendingSearchCity = 'true'
+  option.addEventListener('click', () => openSearchedCityFromEntry(city.query))
+
+  const dot = document.createElement('span')
+  dot.className = 'atlas-city-dot'
+  dot.setAttribute('aria-hidden', 'true')
+
+  const copy = document.createElement('span')
+  copy.className = 'atlas-city-option-copy'
+  const title = document.createElement('strong')
+  title.textContent = city.name
+  const description = document.createElement('small')
+  description.textContent = city.description
+  copy.append(title, description)
+
+  const badge = document.createElement('em')
+  badge.textContent = 'searched'
+
+  option.append(dot, copy, badge)
+
+  return option
+}
+
+function renderPendingSearchCities(cityList: HTMLElement) {
+  const pendingCities = getPendingSearchCities()
+  const pendingIds = new Set(pendingCities.map((city) => city.id))
+
+  cityList.querySelectorAll<HTMLButtonElement>('.atlas-pending-search-city').forEach((option) => {
+    if (!pendingIds.has(option.dataset.favoriteCityId ?? '')) {
+      option.remove()
+    }
+  })
+
+  for (const city of [...pendingCities].reverse()) {
+    let option = cityList.querySelector<HTMLButtonElement>(`.atlas-pending-search-city[data-favorite-city-id="${CSS.escape(city.id)}"]`)
+
+    if (!option) {
+      option = createPendingSearchOption(city)
+      cityList.prepend(option)
+    }
+
+    option.dataset.favoriteCityId = city.id
+    option.dataset.pendingSearchCity = 'true'
+    option.querySelector('strong')!.textContent = city.name
+    option.querySelector('small')!.textContent = city.description
+  }
+
+  const emptyHistory = cityList.querySelector<HTMLElement>('.atlas-city-empty-history')
+  if (emptyHistory) emptyHistory.hidden = pendingCities.length > 0
+  cityList.classList.toggle('has-search-results', pendingCities.length > 0)
 }
 
 function useAtlasPageControlsVisibility() {
@@ -182,6 +346,7 @@ function enhanceCitySelection() {
   if (!panel || !heading || !cityList) return
 
   heading.querySelector('p')?.remove()
+  renderPendingSearchCities(cityList)
 
   if (!heading.querySelector('.atlas-city-back-button')) {
     const button = document.createElement('button')
@@ -202,10 +367,11 @@ function enhanceCitySelection() {
   cityList.querySelectorAll<HTMLButtonElement>('.atlas-city-option').forEach((option) => {
     const cityId = option.dataset.favoriteCityId || getCityOptionId(option)
     const isFavorite = favoriteSet.has(cityId)
+    const isPendingSearchCity = option.dataset.pendingSearchCity === 'true'
 
     if (option.dataset.favoriteCityId !== cityId) option.dataset.favoriteCityId = cityId
     option.classList.toggle('is-favorite', isFavorite)
-    option.hidden = favoriteIds.length > 0 && !isFavorite
+    option.hidden = favoriteIds.length > 0 && !isFavorite && !isPendingSearchCity
 
     let favoriteButton = option.querySelector<HTMLElement>('.atlas-city-favorite-button')
     if (!favoriteButton) {
@@ -238,9 +404,37 @@ function enhanceCitySelection() {
   cityList.classList.toggle('has-favorites', favoriteIds.length > 0)
 }
 
+function useCitySearchAsEntry() {
+  useEffect(() => {
+    function handleSearchSubmit(event: Event) {
+      const form = event.target instanceof HTMLFormElement ? event.target : null
+      if (!form?.classList.contains('atlas-city-search') || form.dataset.atlasAllowSwitch === 'true') return
+
+      const input = form.querySelector<HTMLInputElement>('input')
+      const query = input?.value.trim() ?? ''
+      if (!query) return
+
+      event.preventDefault()
+      event.stopPropagation()
+      event.stopImmediatePropagation()
+
+      addPendingSearchCity(query)
+      setControlledInputValue(input, '')
+      setSearchEntryMessage(form, `${query} was added below. Star it to keep it listed.`)
+      enhanceCitySelection()
+    }
+
+    document.addEventListener('submit', handleSearchSubmit, true)
+
+    return () => {
+      document.removeEventListener('submit', handleSearchSubmit, true)
+    }
+  }, [])
+}
+
 function useCitySelectionEnhancements() {
   useEffect(() => {
-    console.info('[atlas-ui] city selection enhancer v2')
+    console.info('[atlas-ui] city selection enhancer v3')
     enhanceCitySelection()
     const intervalId = window.setInterval(enhanceCitySelection, 300)
     return () => window.clearInterval(intervalId)
@@ -252,6 +446,7 @@ export default function FoggedApp() {
   useAtlasPageControlsVisibility()
   useAtlasMapLoadingAnimation()
   useAtlasButtonTweaks()
+  useCitySearchAsEntry()
   useCitySelectionEnhancements()
 
   useEffect(() => {
