@@ -17,6 +17,8 @@ const locationOptions = {
   interval: 2000,
   minimumUpdateInterval: 2000,
 }
+const nativeWatchSampleMaxAgeMs = 6000
+let latestNativeWatchSample: GpsLocationSample | null = null
 
 export function isNativeRuntime() {
   return Capacitor.isNativePlatform()
@@ -46,6 +48,25 @@ function toGpsLocationSample(position: Position): GpsLocationSample {
     accuracyM: position.coords.accuracy,
     capturedAt: position.timestamp,
   }
+}
+
+function rememberNativeLocationSample(position: Position) {
+  const sample = toGpsLocationSample(position)
+  latestNativeWatchSample = sample
+
+  return sample
+}
+
+export function getLatestNativeWatchSample(maxAgeMs = nativeWatchSampleMaxAgeMs) {
+  if (!latestNativeWatchSample) {
+    return null
+  }
+
+  if (Date.now() - latestNativeWatchSample.capturedAt > maxAgeMs) {
+    return null
+  }
+
+  return latestNativeWatchSample
 }
 
 export async function checkNativeLocationPermission(): Promise<AppLocationPermission> {
@@ -81,9 +102,14 @@ export async function getNativeCurrentLocation(): Promise<GpsLocationSample | nu
     return null
   }
 
+  const cachedWatchSample = getLatestNativeWatchSample()
+  if (cachedWatchSample) {
+    return cachedWatchSample
+  }
+
   const position = await Geolocation.getCurrentPosition(locationOptions)
 
-  return toGpsLocationSample(position)
+  return rememberNativeLocationSample(position)
 }
 
 export async function watchNativeLocation(
@@ -101,11 +127,19 @@ export async function watchNativeLocation(
     }
 
     if (position) {
-      onSample(toGpsLocationSample(position))
+      const sample = rememberNativeLocationSample(position)
+      console.info('[atlas-live] native watch sample', {
+        accuracyM: sample.accuracyM,
+        capturedAt: sample.capturedAt,
+      })
+      onSample(sample)
     }
   })
 
+  console.info('[atlas-live] native watch started', { watchId })
+
   return () => {
+    console.info('[atlas-live] native watch stopped', { watchId })
     void Geolocation.clearWatch({ id: watchId })
   }
 }
