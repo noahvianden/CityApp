@@ -30,6 +30,7 @@ let overlayObserver: MutationObserver | null = null
 let overlayFrame = 0
 let citySelectionFrame = 0
 let citySelectionListenersInstalled = false
+let allowPlaceCardReopen = false
 
 function finite(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value)
@@ -255,10 +256,50 @@ function isAtlasVisible() {
   return Boolean(document.querySelector('.atlas-map-frame .atlas-map')) && !document.querySelector('.atlas-city-selection-panel')
 }
 
+function getPlaceCardShell() {
+  return document.querySelector<HTMLElement>('.city-place-discovery-card-shell')
+}
+
+function markPlaceCardDismissed() {
+  const shell = getPlaceCardShell()
+  if (!shell) return
+
+  shell.dataset.placeCardDismissed = 'true'
+  shell.hidden = true
+}
+
+function notePossiblePlaceSelection(event: MouseEvent) {
+  const target = event.target as HTMLElement | null
+  if (!target) return
+
+  if (target.closest('.city-place-card-close')) {
+    markPlaceCardDismissed()
+    schedulePlaceCardVisibility()
+    return
+  }
+
+  if (target.closest('.atlas-map')) {
+    allowPlaceCardReopen = true
+    window.setTimeout(() => {
+      allowPlaceCardReopen = false
+    }, 300)
+  }
+}
+
 function updatePlaceCardVisibility() {
   overlayFrame = 0
-  const shell = document.querySelector<HTMLElement>('.city-place-discovery-card-shell')
+  const shell = getPlaceCardShell()
   if (!shell) return
+
+  const dismissed = shell.dataset.placeCardDismissed === 'true'
+
+  if (dismissed && allowPlaceCardReopen && !shell.hidden && isAtlasVisible()) {
+    shell.dataset.placeCardDismissed = 'false'
+    allowPlaceCardReopen = false
+  } else if (dismissed) {
+    shell.hidden = true
+    return
+  }
 
   shell.hidden = !isAtlasVisible()
 }
@@ -278,7 +319,8 @@ function installDomGuards() {
   if (!citySelectionListenersInstalled) {
     citySelectionListenersInstalled = true
     document.addEventListener('click', clickBackToCurrentAtlas, true)
-    document.addEventListener('click', () => {
+    document.addEventListener('click', (event) => {
+      notePossiblePlaceSelection(event)
       rememberVisibleActiveCityName()
       schedulePlaceCardVisibility()
       scheduleKeepCurrentCityVisible()
