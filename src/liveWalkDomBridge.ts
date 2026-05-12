@@ -9,6 +9,7 @@ let lastForwardedSample: GpsLocationSample | null = null
 let lastRefreshAt = 0
 let pendingRefreshFrame = 0
 let isRefreshingFromWatch = false
+let isStartingWatch = false
 let isInstalled = false
 
 function degreesToRadians(value: number) {
@@ -41,10 +42,6 @@ function getSimulatedButton() {
   }) ?? null
 }
 
-function isGpsModeActive() {
-  return getGpsButton()?.classList.contains('active') ?? false
-}
-
 function markLiveWalkActive(active: boolean) {
   document.body.classList.toggle('atlas-live-walk-active', active)
   getGpsButton()?.classList.toggle('live-walk-active', active)
@@ -63,8 +60,8 @@ function shouldForwardSample(sample: GpsLocationSample) {
   return distanceMeters(lastForwardedSample, sample) >= liveWalkRefreshDistanceMeters
 }
 
-function refreshGpsButtonFromWatch(sample: GpsLocationSample) {
-  if (!isGpsModeActive() || !shouldForwardSample(sample)) {
+function replayGpsButtonFromWatch(sample: GpsLocationSample) {
+  if (!shouldForwardSample(sample)) {
     return
   }
 
@@ -76,7 +73,7 @@ function refreshGpsButtonFromWatch(sample: GpsLocationSample) {
     pendingRefreshFrame = 0
     const gpsButton = getGpsButton()
 
-    if (!gpsButton || !isGpsModeActive()) {
+    if (!gpsButton) {
       return
     }
 
@@ -91,28 +88,34 @@ function refreshGpsButtonFromWatch(sample: GpsLocationSample) {
 }
 
 async function startLiveWalkWatch() {
-  if (stopNativeWatch || !isNativeRuntime()) {
+  if (stopNativeWatch || isStartingWatch || !isNativeRuntime()) {
     return
   }
 
+  isStartingWatch = true
   console.info('[atlas-live] start requested')
-  const permission = await requestNativeLocationPermission()
 
-  if (permission === 'denied') {
-    console.warn('[atlas-live] location permission denied')
-    return
+  try {
+    const permission = await requestNativeLocationPermission()
+
+    if (permission === 'denied') {
+      console.warn('[atlas-live] location permission denied')
+      return
+    }
+
+    stopNativeWatch = await watchNativeLocation(
+      (sample) => {
+        markLiveWalkActive(true)
+        replayGpsButtonFromWatch(sample)
+      },
+      (message) => {
+        console.warn('[atlas-live] native watch error', message)
+        stopLiveWalkWatch()
+      },
+    )
+  } finally {
+    isStartingWatch = false
   }
-
-  stopNativeWatch = await watchNativeLocation(
-    (sample) => {
-      markLiveWalkActive(true)
-      refreshGpsButtonFromWatch(sample)
-    },
-    (message) => {
-      console.warn('[atlas-live] native watch error', message)
-      stopLiveWalkWatch()
-    },
-  )
 }
 
 function stopLiveWalkWatch() {
@@ -121,6 +124,12 @@ function stopLiveWalkWatch() {
   lastForwardedSample = null
   lastRefreshAt = 0
   markLiveWalkActive(false)
+}
+
+function stopOriginalGpsClick(event: MouseEvent) {
+  event.preventDefault()
+  event.stopPropagation()
+  event.stopImmediatePropagation()
 }
 
 function handleDocumentClick(event: MouseEvent) {
@@ -132,7 +141,12 @@ function handleDocumentClick(event: MouseEvent) {
   }
 
   if (button === getGpsButton()) {
-    if (!isRefreshingFromWatch) {
+    if (isRefreshingFromWatch) {
+      return
+    }
+
+    if (isNativeRuntime()) {
+      stopOriginalGpsClick(event)
       void startLiveWalkWatch()
     }
     return
