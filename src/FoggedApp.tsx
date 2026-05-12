@@ -163,7 +163,7 @@ function useCityFavorites() {
         option.dataset.favoriteCityId = cityId
         const isFavorite = favoriteSet.has(cityId)
         option.classList.toggle('is-favorite', isFavorite)
-        option.hidden = !isFavorite
+        option.hidden = false
 
         if (!option.querySelector('.atlas-city-favorite-button')) {
           const favoriteButton = document.createElement('span')
@@ -196,7 +196,7 @@ function useCityFavorites() {
       })
 
       const cityList = document.querySelector<HTMLElement>('.atlas-city-list')
-      cityList?.classList.toggle('has-favorites', options.some((option) => !option.hidden))
+      cityList?.classList.toggle('has-favorites', favoriteIds.length > 0)
     }
 
     updateFavorites()
@@ -211,7 +211,7 @@ function useCityFavorites() {
 function useCitySelectionBackButton() {
   useEffect(() => {
     function goBackToAtlas() {
-      const currentCityOption = document.querySelector<HTMLButtonElement>('.atlas-city-option.is-favorite')
+      const currentCityOption = document.querySelector<HTMLButtonElement>('.atlas-city-option.is-favorite, .atlas-city-option')
 
       if (currentCityOption) {
         currentCityOption.click()
