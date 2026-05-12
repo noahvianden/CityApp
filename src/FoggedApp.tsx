@@ -79,6 +79,15 @@ function getCityNameFavoriteKey(name: string) {
   return `name:${normalizeCityName(name)}`
 }
 
+function getActiveCityName() {
+  return document.querySelector<HTMLElement>('.atlas-city-title-button span')?.textContent?.trim() ?? ''
+}
+
+function isActiveCityName(name: string) {
+  const activeCityName = getActiveCityName()
+  return Boolean(activeCityName && name && normalizeCityName(activeCityName) === normalizeCityName(name))
+}
+
 function getFavoriteCityIds() {
   try {
     const parsed = JSON.parse(window.localStorage.getItem(favoriteCitiesStorageKey) ?? '[]')
@@ -109,6 +118,10 @@ function getFavoriteKeysForOption(option: HTMLButtonElement) {
 
 function isOptionFavorite(option: HTMLButtonElement, favoriteSet: Set<string>) {
   return Array.from(getFavoriteKeysForOption(option)).some((key) => favoriteSet.has(key))
+}
+
+function isOptionActiveCity(option: HTMLButtonElement) {
+  return isActiveCityName(getCityOptionTitle(option))
 }
 
 function toggleOptionFavorite(option: HTMLButtonElement) {
@@ -175,10 +188,14 @@ function isPendingCityFavorite(city: PendingSearchCity, favoriteSet: Set<string>
   return favoriteSet.has(city.id) || favoriteSet.has(getCityNameFavoriteKey(city.name))
 }
 
+function isPendingCityActive(city: PendingSearchCity) {
+  return isActiveCityName(city.name)
+}
+
 function cleanupCityListAfterClose() {
   const favoriteSet = new Set(getFavoriteCityIds())
-  const starredPendingCities = getPendingSearchCities().filter((city) => isPendingCityFavorite(city, favoriteSet))
-  setPendingSearchCities(starredPendingCities)
+  const keptPendingCities = getPendingSearchCities().filter((city) => isPendingCityFavorite(city, favoriteSet) || isPendingCityActive(city))
+  setPendingSearchCities(keptPendingCities)
   setCityListPruned(true)
 }
 
@@ -265,8 +282,8 @@ function addPendingSearchCity(city: PendingSearchCity) {
   if (existingIds.has(city.id) || existingIds.has(getCityNameFavoriteKey(city.name))) return 'exists' as const
 
   const favoriteSet = new Set(getFavoriteCityIds())
-  const starredPendingCities = getPendingSearchCities().filter((entry) => isPendingCityFavorite(entry, favoriteSet))
-  const nextCities = [city, ...starredPendingCities.filter((entry) => entry.id !== city.id)]
+  const keptPendingCities = getPendingSearchCities().filter((entry) => isPendingCityFavorite(entry, favoriteSet) || isPendingCityActive(entry))
+  const nextCities = [city, ...keptPendingCities.filter((entry) => entry.id !== city.id)]
   setPendingSearchCities(nextCities)
 
   return 'added' as const
@@ -382,6 +399,7 @@ function reconcileRealAndPendingCityEntries(cityList: HTMLElement) {
 
     realOption.dataset.favoriteCityId = city.id
     realOption.classList.toggle('is-favorite', isOptionFavorite(realOption, favoriteSet))
+    realOption.classList.toggle('is-active-city', isOptionActiveCity(realOption))
     cityList.querySelector<HTMLButtonElement>(`.atlas-pending-search-city[data-favorite-city-id="${CSS.escape(city.id)}"]`)?.remove()
     nextPendingCities = nextPendingCities.filter((entry) => entry.id !== city.id)
   }
@@ -547,11 +565,13 @@ function enhanceCitySelection() {
   cityList.querySelectorAll<HTMLButtonElement>('.atlas-city-option').forEach((option) => {
     const cityId = option.dataset.favoriteCityId || getCityOptionId(option)
     const isFavorite = isOptionFavorite(option, favoriteSet)
+    const isActiveCity = isOptionActiveCity(option)
     const isPendingSearchCity = option.dataset.pendingSearchCity === 'true'
 
     if (option.dataset.favoriteCityId !== cityId) option.dataset.favoriteCityId = cityId
     option.classList.toggle('is-favorite', isFavorite)
-    option.hidden = shouldHideUnstarredStableEntries && !isFavorite && !isPendingSearchCity
+    option.classList.toggle('is-active-city', isActiveCity)
+    option.hidden = shouldHideUnstarredStableEntries && !isFavorite && !isPendingSearchCity && !isActiveCity
 
     let favoriteButton = option.querySelector<HTMLElement>('.atlas-city-favorite-button')
     if (!favoriteButton) {
@@ -631,7 +651,7 @@ function useCitySearchAsEntry() {
 
 function useCitySelectionEnhancements() {
   useEffect(() => {
-    console.info('[atlas-ui] city selection enhancer v7')
+    console.info('[atlas-ui] city selection enhancer v8')
     let wasCitySelectionOpen = Boolean(document.querySelector('.atlas-city-selection-panel'))
 
     function tickCitySelectionEnhancements() {
