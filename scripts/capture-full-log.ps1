@@ -33,6 +33,14 @@ if (-not (Test-Path $adb)) {
 }
 
 $relevantPatterns = @(
+  'D/Capacitor',
+  'V/Capacitor',
+  'Capacitor/Console',
+  'CapacitorHttp',
+  'CapacitorCookies',
+  'Handling local request',
+  'Loading app at',
+  'assets/index-',
   'AndroidRuntime',
   'FATAL EXCEPTION',
   'ANR',
@@ -49,7 +57,7 @@ $relevantPatterns = @(
   'Error:'
 )
 $relevantRegex = ($relevantPatterns -join '|')
-$noiseRegex = 'methodData:|"geojson"|"coordinates"|Expected value to be of type number|There is no style added to the map|\[object Object\]'
+$noiseRegex = '"geojson"|"coordinates"|Expected value to be of type number|There is no style added to the map|\[object Object\]'
 
 function Invoke-Adb {
   param([Parameter(ValueFromRemainingArguments = $true)][string[]]$Arguments)
@@ -124,9 +132,9 @@ $targetPid = ($pidOutput | Select-Object -First 1).Trim()
 if ($IncludeSystem) {
   Write-Host "Capturing all logcat for $Seconds seconds."
 } elseif ($targetPid) {
-  Write-Host "Capturing relevant CityApp log lines for $Seconds seconds. PID: $targetPid"
+  Write-Host "Capturing useful CityApp log lines for $Seconds seconds. PID: $targetPid"
 } else {
-  Write-Host "Could not resolve CityApp PID. Capturing relevant device log lines for $Seconds seconds."
+  Write-Host "Could not resolve CityApp PID. Capturing useful device log lines for $Seconds seconds."
 }
 
 Start-Sleep -Seconds $Seconds
@@ -148,5 +156,5 @@ if ($lines) {
   'No relevant CityApp log lines captured.' | Set-Content -Path $fullLogPath -Encoding utf8
 }
 
-Write-Host "Done. Relevant log written: $fullLogPath"
+Write-Host "Done. Useful log written: $fullLogPath"
 Write-Host 'Use -IncludeSystem only when you need the complete unfiltered device log.'
