@@ -26,6 +26,10 @@ type PlaceState = {
   visitedIds: string[]
   memoryIds: string[]
 }
+type ReverseAddressPayload = {
+  address?: Record<string, string | undefined>
+  display_name?: string
+}
 type PlaceCardModel = {
   id: string
   name: string
@@ -33,14 +37,15 @@ type PlaceCardModel = {
   detail: string
   coordinate: Coordinate
   distanceLabel: string
-  description: string
   tags: string[]
   googleMapsUrl: string
+  addressLabel: string
 }
 
 const livePlacesCircleLayerId = 'atlas-live-world-places-circle'
 const livePlacesLabelLayerId = 'atlas-live-world-places-label'
 const placeStateStorageKey = 'cityapp:place-discovery-card-state:v1'
+const addressCache = new Map<string, string>()
 const installedMaps = new WeakSet<MapInstance>()
 const installedHandlers = new WeakMap<MapInstance, InstalledHandlers>()
 let overlayRoot: HTMLElement | null = null
@@ -89,6 +94,15 @@ function titleCase(value: string) {
     .join(' ')
 }
 
+function escapeHtml(value: string) {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+}
+
 function getCategoryLabel(category: LivePlaceCategory) {
   const labels: Record<LivePlaceCategory, string> = {
     cafe: 'Cafe',
@@ -125,12 +139,6 @@ function getCategoryTags(category: LivePlaceCategory, detail: string) {
   return tags.slice(0, 6)
 }
 
-function getDescription(placeName: string, category: LivePlaceCategory) {
-  const subject = category === 'park' || category === 'viewpoint' ? 'open-air stop' : category === 'shop' || category === 'market' ? 'local stop' : 'place'
-  return `${placeName} was discovered from live map data inside your revealed city area. Open the map overlay to gather exact address, routing, and public listing details without exposing your route.`
-    .replace('place was', `${subject} was`)
-}
-
 function metersBetween(a: { lng: number, lat: number }, b: { lng: number, lat: number }) {
   const earth = 6_371_000
   const dLat = (b.lat - a.lat) * Math.PI / 180
@@ -156,6 +164,60 @@ function getGoogleMapsUrl(place: Pick<PlaceCardModel, 'name' | 'coordinate'>) {
   return `https://www.google.com/maps/search/?api=1&query=${query}`
 }
 
+function getCoordinateAddressCacheKey([lng, lat]: Coordinate) {
+  return `${lat.toFixed(6)}:${lng.toFixed(6)}`
+}
+
+function readAddressPart(address: Record<string, string | undefined>, keys: string[]) {
+  for (const key of keys) {
+    const value = address[key]?.trim()
+    if (value) return value
+  }
+  return ''
+}
+
+function formatAddress(payload: ReverseAddressPayload) {
+  const address = payload.address ?? {}
+  const street = readAddressPart(address, ['road', 'pedestrian', 'footway', 'path', 'cycleway', 'residential'])
+  const houseNumber = readAddressPart(address, ['house_number'])
+  const postcode = readAddressPart(address, ['postcode'])
+  const streetLine = [street, houseNumber].filter(Boolean).join(' ')
+
+  if (streetLine && postcode) return `${streetLine} · ${postcode}`
+  if (streetLine) return streetLine
+  if (postcode) return postcode
+
+  return 'Street address unavailable'
+}
+
+async function lookupAddressLabel(place: PlaceCardModel) {
+  const [lng, lat] = place.coordinate
+  const cacheKey = getCoordinateAddressCacheKey(place.coordinate)
+  const cached = addressCache.get(cacheKey)
+  if (cached) return cached
+
+  const params = new URLSearchParams({
+    format: 'jsonv2',
+    lat: String(lat),
+    lon: String(lng),
+    zoom: '18',
+    addressdetails: '1',
+    'accept-language': 'en',
+  })
+
+  const response = await fetch(`https://nominatim.openstreetmap.org/reverse?${params.toString()}`, {
+    headers: { Accept: 'application/json' },
+    credentials: 'omit',
+  })
+
+  if (!response.ok) return 'Street address unavailable'
+
+  const payload = await response.json() as ReverseAddressPayload
+  const label = formatAddress(payload)
+  addressCache.set(cacheKey, label)
+  return label
+}
+
 function featureToPlaceModel(map: MapInstance, feature: PlaceFeature): PlaceCardModel | null {
   const coordinate = feature.geometry?.type === 'Point' && isCoordinate(feature.geometry.coordinates)
     ? feature.geometry.coordinates
@@ -168,6 +230,7 @@ function featureToPlaceModel(map: MapInstance, feature: PlaceFeature): PlaceCard
   const detail = titleCase(stringProperty(properties, 'detail', getCategoryLabel(category)))
   const center = map.getCenter()
   const distanceLabel = formatDistance(metersBetween({ lng: center.lng, lat: center.lat }, { lng: coordinate[0], lat: coordinate[1] }))
+  const addressLabel = addressCache.get(getCoordinateAddressCacheKey(coordinate)) ?? 'Looking up street address...'
   const basePlace = {
     id: stringProperty(properties, 'id', `${coordinate[1]}:${coordinate[0]}:${name}`),
     name,
@@ -175,7 +238,7 @@ function featureToPlaceModel(map: MapInstance, feature: PlaceFeature): PlaceCard
     detail,
     coordinate,
     distanceLabel,
-    description: getDescription(name, category),
+    addressLabel,
     tags: getCategoryTags(category, detail),
   }
 
@@ -250,8 +313,8 @@ function renderGoogleOverlay(place: PlaceCardModel) {
         <span class="city-place-mini-pin"></span>
       </span>
       <span class="city-place-google-copy">
-        <strong>Google Maps overlay</strong>
-        <small>${place.distanceLabel} · exact address on open</small>
+        <strong>Google Maps</strong>
+        <small>${escapeHtml(place.addressLabel)}</small>
         <em>Open in Google Maps</em>
       </span>
     </button>
@@ -266,17 +329,16 @@ function renderPlaceCard(place: PlaceCardModel) {
   const root = ensureOverlayRoot()
   root.hidden = false
   root.innerHTML = `
-    <article class="city-place-discovery-card" aria-label="Information for ${place.name}">
+    <article class="city-place-discovery-card" aria-label="Information for ${escapeHtml(place.name)}">
       <button class="city-place-card-close" type="button" data-place-action="close" aria-label="Close place information">×</button>
       <header>
-        <h2>${place.name}</h2>
-        <p>${getCategoryLabel(place.category)} · ${place.detail}</p>
+        <h2>${escapeHtml(place.name)}</h2>
+        <p>${escapeHtml(getCategoryLabel(place.category))} · ${escapeHtml(place.detail)}</p>
       </header>
-      <p class="city-place-card-description">${place.description}</p>
-      ${renderGoogleOverlay(place)}
       <div class="city-place-card-tags" aria-label="Place tags">
-        ${place.tags.map((tag) => `<span>${tag}</span>`).join('')}
+        ${place.tags.map((tag) => `<span>${escapeHtml(tag)}</span>`).join('')}
       </div>
+      ${renderGoogleOverlay(place)}
       <div class="city-place-card-actions">
         <button class="city-place-card-primary" type="button" data-place-action="save">${isSaved ? 'Saved' : 'Save'}</button>
         <button class="city-place-card-secondary" type="button" data-place-action="visited">${isVisited ? 'Visited ✓' : 'Visited'}</button>
@@ -308,12 +370,27 @@ function handleOverlayClick(event: MouseEvent) {
   renderPlaceCard(currentPlace)
 }
 
+function updatePlaceAddress(place: PlaceCardModel) {
+  void lookupAddressLabel(place)
+    .then((addressLabel) => {
+      if (!currentPlace || currentPlace.id !== place.id) return
+      currentPlace = { ...currentPlace, addressLabel }
+      renderPlaceCard(currentPlace)
+    })
+    .catch(() => {
+      if (!currentPlace || currentPlace.id !== place.id) return
+      currentPlace = { ...currentPlace, addressLabel: 'Street address unavailable' }
+      renderPlaceCard(currentPlace)
+    })
+}
+
 function showPlaceCard(map: MapInstance, feature: PlaceFeature) {
   const place = featureToPlaceModel(map, feature)
   if (!place) return
 
   currentPlace = place
   renderPlaceCard(place)
+  updatePlaceAddress(place)
   overlayRoot?.removeEventListener('click', handleOverlayClick)
   overlayRoot?.addEventListener('click', handleOverlayClick)
 }
@@ -437,13 +514,6 @@ const placeCardStyles = `
   color: #2a9b73;
   font-size: 12px;
   font-weight: 900;
-  margin: 0;
-}
-.city-place-card-description {
-  color: #8a8175;
-  font-size: 13px;
-  font-weight: 700;
-  line-height: 1.42;
   margin: 0;
 }
 .city-place-google-overlay {
