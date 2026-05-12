@@ -1,6 +1,7 @@
 :root {
   --city-atlas-shell-height: 100svh;
   --city-atlas-map-top: 105px;
+  --city-atlas-map-inline: 13px;
   --city-atlas-control-bottom: 98px;
   --city-atlas-control-height: 38px;
   --city-atlas-map-to-controls-gap: 22px;
@@ -73,10 +74,10 @@
 
 .city-place-discovery-card-shell {
   bottom: max(12px, var(--city-place-card-bottom)) !important;
-  left: 12px !important;
-  right: 12px !important;
+  left: var(--city-atlas-map-inline) !important;
+  right: var(--city-atlas-map-inline) !important;
   width: auto !important;
-  max-width: min(420px, calc(100vw - 24px)) !important;
+  max-width: none !important;
   max-height: min(calc(var(--city-atlas-map-height) - 24px), calc(100svh - 116px - env(safe-area-inset-top))) !important;
   display: flex !important;
   align-items: flex-end !important;
@@ -140,13 +141,10 @@
   white-space: nowrap !important;
 }
 
-@media (min-width: 760px) {
-  .city-place-discovery-card-shell {
-    left: 28px !important;
-    right: auto !important;
-    width: 390px !important;
-    max-width: 390px !important;
-  }
+.atlas-map-frame.fullscreen ~ .city-place-discovery-card-shell,
+body:has(.atlas-map-frame.fullscreen) .city-place-discovery-card-shell {
+  left: 13px !important;
+  right: 13px !important;
 }
 
 @media (max-width: 350px) {
