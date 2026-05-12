@@ -1,7 +1,9 @@
 import type { StyleSpecification } from 'maplibre-gl'
 
 const cityStylePath = `${import.meta.env.BASE_URL}city-style.json`
-const numericComparisonOperators = new Set(['<', '<=', '>', '>='])
+const numericComparisonOperators = new Set<string>(['<', '<=', '>', '>='])
+
+type StyleExpression = [string, ...unknown[]]
 
 let cachedCityStyle: Promise<StyleSpecification> | null = null
 let originalFetch: typeof window.fetch | null = null
@@ -17,7 +19,7 @@ function isCityStyleRequest(input: RequestInfo | URL) {
   }
 }
 
-function isExpression(value: unknown): value is unknown[] {
+function isExpression(value: unknown): value is StyleExpression {
   return Array.isArray(value) && typeof value[0] === 'string'
 }
 
