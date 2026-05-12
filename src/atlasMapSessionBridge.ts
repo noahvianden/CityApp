@@ -2,6 +2,7 @@ type MapInstance = import('maplibre-gl').Map
 
 type PatchableMap = typeof import('maplibre-gl').Map.prototype & {
   __cityAtlasMapSessionPatched?: boolean
+  __cityAtlasBaseMinZoom?: number
 }
 type StoredCamera = {
   center: [number, number]
@@ -17,13 +18,101 @@ type LayerEventMap = {
   loaded: () => boolean
 }
 
+type MapWithSession = MapInstance & {
+  __cityAtlasCameraAttached?: boolean
+  __cityAtlasBaseMinZoom?: number
+}
+
 const atlasCameraStorageKey = 'cityapp:atlas-map-camera:v1'
+const atlasActiveCityNameStorageKey = 'cityapp:atlas-active-city-name:v1'
 let installPromise: Promise<void> | null = null
 let overlayObserver: MutationObserver | null = null
 let overlayFrame = 0
+let citySelectionFrame = 0
+let citySelectionListenersInstalled = false
 
 function finite(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value)
+}
+
+function normalizeCityName(value: string) {
+  return value.replace(/\s+/g, ' ').trim().toLocaleLowerCase()
+}
+
+function getStoredActiveCityName() {
+  try {
+    return window.sessionStorage.getItem(atlasActiveCityNameStorageKey)?.trim() ?? ''
+  } catch {
+    return ''
+  }
+}
+
+function setStoredActiveCityName(name: string) {
+  const normalizedName = name.replace(/\s+/g, ' ').trim()
+  if (!normalizedName) return
+
+  try {
+    window.sessionStorage.setItem(atlasActiveCityNameStorageKey, normalizedName)
+  } catch {
+    // Active city memory is session convenience only.
+  }
+}
+
+function rememberVisibleActiveCityName() {
+  const name = document.querySelector<HTMLElement>('.atlas-city-title-button span')?.textContent?.trim()
+  if (name) setStoredActiveCityName(name)
+}
+
+function getCityOptionTitle(option: HTMLButtonElement) {
+  return option.querySelector('strong')?.textContent?.trim() ?? ''
+}
+
+function getActiveCityOption() {
+  const activeCityName = normalizeCityName(getStoredActiveCityName())
+  if (!activeCityName) return null
+
+  return Array.from(document.querySelectorAll<HTMLButtonElement>('.atlas-city-option'))
+    .find((option) => normalizeCityName(getCityOptionTitle(option)) === activeCityName) ?? null
+}
+
+function keepCurrentCityVisible() {
+  citySelectionFrame = 0
+  rememberVisibleActiveCityName()
+
+  const cityList = document.querySelector<HTMLElement>('.atlas-city-list')
+  const activeOption = getActiveCityOption()
+  if (!cityList || !activeOption) return
+
+  activeOption.hidden = false
+  activeOption.classList.add('is-active-city')
+  activeOption.dataset.atlasCurrentCity = 'true'
+
+  if (cityList.firstElementChild !== activeOption) {
+    cityList.prepend(activeOption)
+  }
+}
+
+function scheduleKeepCurrentCityVisible() {
+  if (!citySelectionFrame) citySelectionFrame = window.requestAnimationFrame(keepCurrentCityVisible)
+}
+
+function clickBackToCurrentAtlas(event: MouseEvent) {
+  const backButton = (event.target as HTMLElement | null)?.closest<HTMLElement>('.atlas-city-back-button')
+  if (!backButton) return
+
+  const activeOption = getActiveCityOption()
+  const fallbackOption = Array.from(document.querySelectorAll<HTMLButtonElement>('.atlas-city-option')).find((option) => !option.hidden)
+  const optionToOpen = activeOption ?? fallbackOption
+  if (!optionToOpen) return
+
+  event.preventDefault()
+  event.stopPropagation()
+  event.stopImmediatePropagation()
+
+  window.setTimeout(() => {
+    optionToOpen.click()
+    scheduleKeepCurrentCityVisible()
+  }, 0)
 }
 
 function getStoredCamera(): StoredCamera | null {
@@ -91,6 +180,11 @@ function cameraIsInsideBounds(camera: StoredCamera, bounds: BoundsLike | null | 
   return lng >= parts.west && lng <= parts.east && lat >= parts.south && lat <= parts.north
 }
 
+function getCameraZoom(map: MapInstance, camera: StoredCamera) {
+  const baseMinZoom = (map as MapWithSession).__cityAtlasBaseMinZoom
+  return finite(baseMinZoom) ? Math.max(camera.zoom, baseMinZoom) : camera.zoom
+}
+
 function restoreStoredCamera(map: MapInstance, bounds?: BoundsLike | null) {
   const camera = getStoredCamera()
   if (!camera || !cameraIsInsideBounds(camera, bounds)) return
@@ -99,7 +193,7 @@ function restoreStoredCamera(map: MapInstance, bounds?: BoundsLike | null) {
     try {
       map.jumpTo({
         center: camera.center,
-        zoom: camera.zoom,
+        zoom: getCameraZoom(map, camera),
         bearing: camera.bearing,
         pitch: camera.pitch,
       })
@@ -111,6 +205,10 @@ function restoreStoredCamera(map: MapInstance, bounds?: BoundsLike | null) {
 }
 
 function attachCameraSave(map: MapInstance) {
+  const sessionMap = map as MapWithSession
+  if (sessionMap.__cityAtlasCameraAttached) return
+  sessionMap.__cityAtlasCameraAttached = true
+
   const eventMap = map as unknown as LayerEventMap
   eventMap.on('moveend', () => setStoredCamera(map))
   eventMap.on('zoomend', () => setStoredCamera(map))
@@ -126,6 +224,17 @@ function attachCameraSave(map: MapInstance) {
 function patchMapPrototype(prototype: PatchableMap) {
   if (prototype.__cityAtlasMapSessionPatched) return
   prototype.__cityAtlasMapSessionPatched = true
+
+  const originalSetMinZoom = prototype.setMinZoom
+  prototype.setMinZoom = function patchedSetMinZoom(this: MapInstance, zoom: number) {
+    const sessionMap = this as MapWithSession
+    if (!finite(sessionMap.__cityAtlasBaseMinZoom) && finite(zoom) && zoom > 0) {
+      sessionMap.__cityAtlasBaseMinZoom = zoom
+    }
+
+    const nextZoom = finite(sessionMap.__cityAtlasBaseMinZoom) ? Math.max(zoom, sessionMap.__cityAtlasBaseMinZoom) : zoom
+    return originalSetMinZoom.call(this, nextZoom)
+  }
 
   const originalSetMaxBounds = prototype.setMaxBounds
   prototype.setMaxBounds = function patchedSetMaxBounds(this: MapInstance, ...args: Parameters<MapInstance['setMaxBounds']>) {
@@ -164,16 +273,30 @@ function schedulePlaceCardVisibility() {
   if (!overlayFrame) overlayFrame = window.requestAnimationFrame(updatePlaceCardVisibility)
 }
 
-function installPlaceCardVisibilityGuard() {
+function installDomGuards() {
   if (overlayObserver || typeof document === 'undefined') return
-  overlayObserver = new MutationObserver(schedulePlaceCardVisibility)
+  overlayObserver = new MutationObserver(() => {
+    schedulePlaceCardVisibility()
+    scheduleKeepCurrentCityVisible()
+  })
   overlayObserver.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['class', 'hidden'] })
-  document.addEventListener('click', schedulePlaceCardVisibility, true)
+
+  if (!citySelectionListenersInstalled) {
+    citySelectionListenersInstalled = true
+    document.addEventListener('click', clickBackToCurrentAtlas, true)
+    document.addEventListener('click', () => {
+      rememberVisibleActiveCityName()
+      schedulePlaceCardVisibility()
+      scheduleKeepCurrentCityVisible()
+    }, true)
+  }
+
   schedulePlaceCardVisibility()
+  scheduleKeepCurrentCityVisible()
 }
 
 export function installAtlasMapSessionBridge() {
-  installPlaceCardVisibilityGuard()
+  installDomGuards()
 
   if (!installPromise) {
     installPromise = import('maplibre-gl').then((maplibregl) => {
