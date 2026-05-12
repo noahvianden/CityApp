@@ -7,7 +7,9 @@ param(
 
   [string]$Output = 'cityapp-android-log.txt',
 
-  [switch]$NoBuild
+  [switch]$NoBuild,
+
+  [switch]$NoInstall
 )
 
 $ErrorActionPreference = 'Stop'
@@ -89,66 +91,44 @@ if ($devices -notcontains $targetSerial) {
   throw "Geraet '$targetSerial' ist nicht verbunden oder nicht autorisiert. Verbunden: $($devices -join ', ')"
 }
 
+if (-not $NoInstall) {
+  Write-Host "Installiere Debug-App auf $targetSerial..."
+  Push-Location (Join-Path $repoRoot.Path 'android')
+  try {
+    .\gradlew.bat installDebug -Pandroid.injected.serial=$targetSerial
+    if ($LASTEXITCODE -ne 0) {
+      throw "gradlew.bat installDebug fehlgeschlagen mit Exit-Code $LASTEXITCODE"
+    }
+  } finally {
+    Pop-Location
+  }
+}
+
 $outputDirectory = Split-Path -Parent $outputPath
 if ($outputDirectory -and -not (Test-Path $outputDirectory)) {
   New-Item -ItemType Directory -Path $outputDirectory | Out-Null
 }
 
 Write-Host "Ueberschreibe Logdatei: $outputPath"
-$writer = [System.IO.StreamWriter]::new($outputPath, $false, [System.Text.UTF8Encoding]::new($false))
-$writer.AutoFlush = $true
+'' | Set-Content -Path $outputPath -Encoding utf8
 
 Write-Host "Leere logcat auf $targetSerial..."
 Invoke-Adb -Arguments @('-s', $targetSerial, 'logcat', '-c')
 
 Write-Host "Starte $packageName auf $targetSerial..."
 Invoke-Adb -Arguments @('-s', $targetSerial, 'shell', 'am', 'force-stop', $packageName)
-Invoke-Adb -Arguments @('-s', $targetSerial, 'shell', 'am', 'start', '-n', $activityName)
+Invoke-Adb -Arguments @('-s', $targetSerial, 'shell', 'monkey', '-p', $packageName, '-c', 'android.intent.category.LAUNCHER', '1')
 
-Write-Host "Schreibe fuer $Seconds Sekunden nach $outputPath..."
-$process = [System.Diagnostics.Process]::new()
-$process.StartInfo.FileName = $adb
-$process.StartInfo.Arguments = "-s $targetSerial logcat -v time"
-$process.StartInfo.UseShellExecute = $false
-$process.StartInfo.RedirectStandardOutput = $true
-$process.StartInfo.RedirectStandardError = $true
-$process.StartInfo.CreateNoWindow = $true
+Write-Host "Sammle $Seconds Sekunden logcat..."
+Start-Sleep -Seconds $Seconds
 
-$outputHandler = [System.Diagnostics.DataReceivedEventHandler]{
-  param($sender, $event)
-  if ($null -ne $event.Data) {
-    $writer.WriteLine($event.Data)
-  }
-}
+Write-Host "Schreibe logcat-Dump nach $outputPath..."
+$lines = Get-AdbOutput -Arguments @('-s', $targetSerial, 'logcat', '-d', '-v', 'time')
 
-$errorHandler = [System.Diagnostics.DataReceivedEventHandler]{
-  param($sender, $event)
-  if ($null -ne $event.Data) {
-    $writer.WriteLine($event.Data)
-  }
-}
-
-try {
-  $process.add_OutputDataReceived($outputHandler)
-  $process.add_ErrorDataReceived($errorHandler)
-  [void]$process.Start()
-  $process.BeginOutputReadLine()
-  $process.BeginErrorReadLine()
-  Start-Sleep -Seconds $Seconds
-} finally {
-  if (-not $process.HasExited) {
-    try {
-      $process.Kill($true)
-    } catch {
-      $process.Kill()
-    }
-    $process.WaitForExit()
-  }
-
-  $process.remove_OutputDataReceived($outputHandler)
-  $process.remove_ErrorDataReceived($errorHandler)
-  $process.Dispose()
-  $writer.Dispose()
+if ($lines) {
+  $lines | Set-Content -Path $outputPath -Encoding utf8
+} else {
+  'Keine logcat-Zeilen erfasst. Pruefe, ob das Geraet verbunden ist und logcat Ausgaben liefert.' | Set-Content -Path $outputPath -Encoding utf8
 }
 
 Write-Host "Fertig. Logdatei: $outputPath"
