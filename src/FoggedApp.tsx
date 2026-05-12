@@ -36,6 +36,38 @@ type NominatimSearchEntry = {
   osm_type?: string
 }
 
+type RealTabState = {
+  eyebrow: string
+  title: string
+  body: string
+  cardLabel: string
+  cardBody: string
+}
+
+const realTabStates: Record<string, RealTabState> = {
+  memories: {
+    eyebrow: 'Saved city memory',
+    title: 'Recent discoveries',
+    body: 'Places you reveal on walks are saved here with their city, district, and discovery context.',
+    cardLabel: 'Memory log',
+    cardBody: 'Open Atlas, reveal a real place, then return here to review saved discoveries.',
+  },
+  stats: {
+    eyebrow: 'City progress',
+    title: 'Discovery stats',
+    body: 'Track revealed map coverage, visited districts, and real-place discoveries for the active city.',
+    cardLabel: 'Progress',
+    cardBody: 'Fog reveal and discovery counts update as you move through the city.',
+  },
+  privacy: {
+    eyebrow: 'Location privacy',
+    title: 'Private by design',
+    body: 'Location is used for your live atlas and fog reveal flow. Cityprint keeps discovery language focused on private walking, not rankings.',
+    cardLabel: 'Controls',
+    cardBody: 'Use GPS only when you choose Start; switch fog visibility any time from the atlas controls.',
+  },
+}
+
 function AtlasFogProgress() {
   const [snapshot, setSnapshot] = useState(() => getAtlasFogSnapshot())
 
@@ -440,6 +472,59 @@ function renderPendingSearchCities(cityList: HTMLElement) {
   cityList.classList.toggle('has-search-results', getPendingSearchCities().length > 0)
 }
 
+function getActiveTabKey() {
+  const activeTab = document.querySelector<HTMLElement>('.atlas-tab.active')
+  return activeTab?.textContent?.replace(/\s+/g, ' ').trim().toLocaleLowerCase() ?? ''
+}
+
+function enhanceRealTabPanels() {
+  const panel = document.querySelector<HTMLElement>('.atlas-dummy-panel')
+  if (!panel) return
+
+  const activeTabKey = getActiveTabKey()
+  const state = realTabStates[activeTabKey]
+  if (!state) return
+
+  const eyebrow = panel.querySelector<HTMLElement>('.atlas-dummy-eyebrow')
+  const heading = panel.querySelector<HTMLElement>('h2')
+  const body = panel.querySelector<HTMLElement>('p')
+  const cardLabel = panel.querySelector<HTMLElement>('.atlas-dummy-card strong')
+  const cardBody = panel.querySelector<HTMLElement>('.atlas-dummy-card span')
+
+  if (eyebrow) setTextIfChanged(eyebrow, state.eyebrow)
+  if (heading) setTextIfChanged(heading, state.title)
+  if (body) setTextIfChanged(body, state.body)
+  if (cardLabel) setTextIfChanged(cardLabel, state.cardLabel)
+  if (cardBody) setTextIfChanged(cardBody, state.cardBody)
+
+  panel.setAttribute('aria-label', state.title)
+  panel.classList.add('atlas-real-panel')
+}
+
+function useRealTabPanels() {
+  useEffect(() => {
+    let frame = 0
+
+    function updatePanels() {
+      frame = 0
+      enhanceRealTabPanels()
+    }
+
+    function scheduleUpdatePanels() {
+      if (!frame) frame = window.requestAnimationFrame(updatePanels)
+    }
+
+    scheduleUpdatePanels()
+    const observer = new MutationObserver(scheduleUpdatePanels)
+    observer.observe(document.body, { childList: true, subtree: true, characterData: true })
+
+    return () => {
+      if (frame) window.cancelAnimationFrame(frame)
+      observer.disconnect()
+    }
+  }, [])
+}
+
 function useAtlasPageControlsVisibility() {
   useEffect(() => {
     let frame = 0
@@ -651,7 +736,7 @@ function useCitySearchAsEntry() {
 
 function useCitySelectionEnhancements() {
   useEffect(() => {
-    console.info('[atlas-ui] city selection enhancer v8')
+    console.info('[atlas-ui] city selection enhancer v9')
     let wasCitySelectionOpen = Boolean(document.querySelector('.atlas-city-selection-panel'))
 
     function tickCitySelectionEnhancements() {
@@ -673,6 +758,7 @@ function useCitySelectionEnhancements() {
 
 export default function FoggedApp() {
   const [isFogBridgeReady, setIsFogBridgeReady] = useState(false)
+  useRealTabPanels()
   useAtlasPageControlsVisibility()
   useAtlasMapLoadingAnimation()
   useAtlasButtonTweaks()
