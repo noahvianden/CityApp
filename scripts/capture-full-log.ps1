@@ -1,6 +1,7 @@
 param(
   [string]$Serial,
-  [int]$Seconds = 45
+  [int]$Seconds = 45,
+  [switch]$IncludeSystem
 )
 
 $ErrorActionPreference = 'Stop'
@@ -51,7 +52,14 @@ function Get-AdbOutput {
   return $output
 }
 
-Write-Host 'Removing old full log file...'
+function Get-AdbOutputAllowFailure {
+  param([Parameter(ValueFromRemainingArguments = $true)][string[]]$Arguments)
+
+  $output = & $adb @Arguments
+  return $output
+}
+
+Write-Host 'Removing old CityApp log file...'
 Remove-Item -Path $fullLogPath -Force -ErrorAction SilentlyContinue
 
 Write-Host 'Checking connected Android devices...'
@@ -80,16 +88,51 @@ Write-Host "Starting $packageName on $targetSerial..."
 Invoke-Adb -Arguments @('-s', $targetSerial, 'shell', 'am', 'force-stop', $packageName)
 Invoke-Adb -Arguments @('-s', $targetSerial, 'shell', 'am', 'start', '-n', $activityName)
 
-Write-Host "Capturing full log for $Seconds seconds. Use the phone now, then wait for this script to finish."
+Start-Sleep -Milliseconds 750
+$pidOutput = Get-AdbOutputAllowFailure -Arguments @('-s', $targetSerial, 'shell', 'pidof', $packageName)
+$targetPid = ($pidOutput | Select-Object -First 1).Trim()
+
+if ($IncludeSystem) {
+  Write-Host "Capturing all logcat for $Seconds seconds."
+} elseif ($targetPid) {
+  Write-Host "Capturing CityApp process log for $Seconds seconds. PID: $targetPid"
+} else {
+  Write-Host "Could not resolve CityApp PID. Capturing relevant WebView/Capacitor tags for $Seconds seconds."
+}
+
 Start-Sleep -Seconds $Seconds
 
-Write-Host "Writing fresh full log to $fullLogPath..."
-$lines = Get-AdbOutput -Arguments @('-s', $targetSerial, 'logcat', '-d', '-v', 'time')
+Write-Host "Writing filtered log to $fullLogPath..."
+if ($IncludeSystem) {
+  $lines = Get-AdbOutput -Arguments @('-s', $targetSerial, 'logcat', '-d', '-v', 'time')
+} elseif ($targetPid) {
+  $lines = Get-AdbOutput -Arguments @('-s', $targetSerial, 'logcat', '-d', '-v', 'time', '--pid', $targetPid)
+} else {
+  $allLines = Get-AdbOutput -Arguments @('-s', $targetSerial, 'logcat', '-d', '-v', 'time')
+  $patterns = @(
+    'Capacitor',
+    'CityApp',
+    'cityprint',
+    'chromium',
+    'Console',
+    'WebView',
+    'atlas-',
+    'atlas\\[',
+    'MapLibre',
+    'Nominatim',
+    'FATAL EXCEPTION',
+    'AndroidRuntime',
+    'ANR'
+  )
+  $regex = ($patterns -join '|')
+  $lines = $allLines | Where-Object { $_ -match $regex }
+}
 
 if ($lines) {
   $lines | Set-Content -Path $fullLogPath -Encoding utf8
 } else {
-  '' | Set-Content -Path $fullLogPath -Encoding utf8
+  'No relevant CityApp log lines captured.' | Set-Content -Path $fullLogPath -Encoding utf8
 }
 
-Write-Host "Done. Full log written: $fullLogPath"
+Write-Host "Done. Relevant log written: $fullLogPath"
+Write-Host 'Use -IncludeSystem only when you need the complete unfiltered device log.'
