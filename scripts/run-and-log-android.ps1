@@ -95,7 +95,8 @@ if ($outputDirectory -and -not (Test-Path $outputDirectory)) {
 }
 
 Write-Host "Ueberschreibe Logdatei: $outputPath"
-'' | Set-Content -Path $outputPath -Encoding utf8
+$writer = [System.IO.StreamWriter]::new($outputPath, $false, [System.Text.UTF8Encoding]::new($false))
+$writer.AutoFlush = $true
 
 Write-Host "Leere logcat auf $targetSerial..."
 Invoke-Adb -Arguments @('-s', $targetSerial, 'logcat', '-c')
@@ -105,21 +106,45 @@ Invoke-Adb -Arguments @('-s', $targetSerial, 'shell', 'am', 'force-stop', $packa
 Invoke-Adb -Arguments @('-s', $targetSerial, 'shell', 'am', 'start', '-n', $activityName)
 
 Write-Host "Schreibe fuer $Seconds Sekunden nach $outputPath..."
-$logcat = Start-Process `
-  -FilePath $adb `
-  -ArgumentList @('-s', $targetSerial, 'logcat', '-v', 'time') `
-  -RedirectStandardOutput $outputPath `
-  -RedirectStandardError $outputPath `
-  -NoNewWindow `
-  -PassThru
+$process = [System.Diagnostics.Process]::new()
+$process.StartInfo.FileName = $adb
+$process.StartInfo.Arguments = "-s $targetSerial logcat -v time"
+$process.StartInfo.UseShellExecute = $false
+$process.StartInfo.RedirectStandardOutput = $true
+$process.StartInfo.RedirectStandardError = $true
+$process.StartInfo.CreateNoWindow = $true
+
+$outputHandler = [System.Diagnostics.DataReceivedEventHandler]{
+  param($sender, $event)
+  if ($null -ne $event.Data) {
+    $writer.WriteLine($event.Data)
+  }
+}
+
+$errorHandler = [System.Diagnostics.DataReceivedEventHandler]{
+  param($sender, $event)
+  if ($null -ne $event.Data) {
+    $writer.WriteLine($event.Data)
+  }
+}
 
 try {
+  [void]$process.Start()
+  $process.BeginOutputReadLine()
+  $process.BeginErrorReadLine()
   Start-Sleep -Seconds $Seconds
 } finally {
-  if (-not $logcat.HasExited) {
-    $logcat.Kill()
-    $logcat.WaitForExit()
+  if (-not $process.HasExited) {
+    try {
+      $process.Kill($true)
+    } catch {
+      $process.Kill()
+    }
+    $process.WaitForExit()
   }
+
+  $process.Dispose()
+  $writer.Dispose()
 }
 
 Write-Host "Fertig. Logdatei: $outputPath"
