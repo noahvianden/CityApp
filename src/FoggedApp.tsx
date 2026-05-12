@@ -73,22 +73,47 @@ function setFavoriteCityIds(ids: string[]) {
 }
 
 function getCityOptionId(button: HTMLButtonElement) {
-  return button.textContent?.replace(/[★☆]/g, '').replace(/\s+/g, ' ').trim() ?? ''
+  const title = button.querySelector('strong')?.textContent?.trim()
+  const detail = button.querySelector('small')?.textContent?.trim()
+
+  return [title, detail].filter(Boolean).join(' · ') || button.textContent?.replace(/[★☆]/g, '').replace(/\s+/g, ' ').trim() || ''
+}
+
+function setTextIfChanged(element: HTMLElement, text: string) {
+  if (element.textContent !== text) {
+    element.textContent = text
+  }
+}
+
+function setAttributeIfChanged(element: HTMLElement, name: string, value: string) {
+  if (element.getAttribute(name) !== value) {
+    element.setAttribute(name, value)
+  }
 }
 
 function useAtlasPageControlsVisibility() {
   useEffect(() => {
+    let frame = 0
+
     function updateVisibility() {
+      frame = 0
       const shouldShow = Boolean(document.querySelector('.atlas-map')) && !document.querySelector('.atlas-city-selection-panel')
       document.body.classList.toggle('atlas-fog-controls-visible', shouldShow)
     }
 
-    updateVisibility()
+    function scheduleUpdateVisibility() {
+      if (!frame) {
+        frame = window.requestAnimationFrame(updateVisibility)
+      }
+    }
 
-    const observer = new MutationObserver(updateVisibility)
+    scheduleUpdateVisibility()
+
+    const observer = new MutationObserver(scheduleUpdateVisibility)
     observer.observe(document.body, { childList: true, subtree: true })
 
     return () => {
+      if (frame) window.cancelAnimationFrame(frame)
       observer.disconnect()
       document.body.classList.remove('atlas-fog-controls-visible')
     }
@@ -97,35 +122,50 @@ function useAtlasPageControlsVisibility() {
 
 function useAtlasMapLoadingAnimation() {
   useEffect(() => {
-    function ensureLoadingOverlay() {
-      document.querySelectorAll<HTMLElement>('.atlas-map-frame').forEach((frame) => {
-        if (frame.querySelector('.atlas-map-loading')) return
+    let frame = 0
 
-        frame.classList.add('is-loading')
+    function ensureLoadingOverlay() {
+      frame = 0
+      document.querySelectorAll<HTMLElement>('.atlas-map-frame').forEach((frameElement) => {
+        if (frameElement.querySelector('.atlas-map-loading')) return
+
+        frameElement.classList.add('is-loading')
         const loading = document.createElement('div')
         loading.className = 'atlas-map-loading'
         loading.setAttribute('aria-live', 'polite')
         loading.innerHTML = '<span></span><strong>Loading map</strong>'
-        frame.appendChild(loading)
+        frameElement.appendChild(loading)
 
-        const hideLoading = () => frame.classList.remove('is-loading')
-        frame.querySelector('.maplibregl-canvas')?.addEventListener('load', hideLoading, { once: true })
+        const hideLoading = () => frameElement.classList.remove('is-loading')
+        frameElement.querySelector('.maplibregl-canvas')?.addEventListener('load', hideLoading, { once: true })
         window.setTimeout(hideLoading, 950)
       })
     }
 
-    ensureLoadingOverlay()
+    function scheduleLoadingOverlay() {
+      if (!frame) {
+        frame = window.requestAnimationFrame(ensureLoadingOverlay)
+      }
+    }
 
-    const observer = new MutationObserver(ensureLoadingOverlay)
+    scheduleLoadingOverlay()
+
+    const observer = new MutationObserver(scheduleLoadingOverlay)
     observer.observe(document.body, { childList: true, subtree: true })
 
-    return () => observer.disconnect()
+    return () => {
+      if (frame) window.cancelAnimationFrame(frame)
+      observer.disconnect()
+    }
   }, [])
 }
 
 function useAtlasButtonTweaks() {
   useEffect(() => {
+    let frame = 0
+
     function updateButtons() {
+      frame = 0
       document.querySelectorAll<HTMLButtonElement>('.atlas-map-action-button').forEach((button) => {
         const text = button.textContent?.trim().toLowerCase()
 
@@ -143,74 +183,121 @@ function useAtlasButtonTweaks() {
       })
     }
 
-    updateButtons()
+    function scheduleButtonUpdate() {
+      if (!frame) {
+        frame = window.requestAnimationFrame(updateButtons)
+      }
+    }
 
-    const observer = new MutationObserver(updateButtons)
+    scheduleButtonUpdate()
+
+    const observer = new MutationObserver(scheduleButtonUpdate)
     observer.observe(document.body, { childList: true, subtree: true })
 
-    return () => observer.disconnect()
+    return () => {
+      if (frame) window.cancelAnimationFrame(frame)
+      observer.disconnect()
+    }
   }, [])
 }
 
 function useCityFavorites() {
   useEffect(() => {
+    let frame = 0
+    let isUpdating = false
+
     function updateFavorites() {
-      const favoriteIds = getFavoriteCityIds()
-      const favoriteSet = new Set(favoriteIds)
-      const options = Array.from(document.querySelectorAll<HTMLButtonElement>('.atlas-city-option'))
+      frame = 0
 
-      options.forEach((option) => {
-        const cityId = option.dataset.favoriteCityId || getCityOptionId(option)
-        option.dataset.favoriteCityId = cityId
-        const isFavorite = favoriteSet.has(cityId)
-        option.classList.toggle('is-favorite', isFavorite)
-        option.hidden = false
-
-        if (!option.querySelector('.atlas-city-favorite-button')) {
-          const favoriteButton = document.createElement('span')
-          favoriteButton.className = 'atlas-city-favorite-button'
-          favoriteButton.setAttribute('role', 'button')
-          favoriteButton.setAttribute('tabindex', '0')
-          favoriteButton.addEventListener('click', (event) => {
-            event.preventDefault()
-            event.stopPropagation()
-            const currentIds = getFavoriteCityIds()
-            const id = option.dataset.favoriteCityId || getCityOptionId(option)
-            const nextIds = currentIds.includes(id) ? currentIds.filter((entry) => entry !== id) : [...currentIds, id]
-            setFavoriteCityIds(nextIds)
-            updateFavorites()
-          })
-          favoriteButton.addEventListener('keydown', (event) => {
-            if (event.key === 'Enter' || event.key === ' ') {
-              event.preventDefault()
-              favoriteButton.click()
-            }
-          })
-          option.appendChild(favoriteButton)
-        }
-
-        const favoriteButton = option.querySelector<HTMLElement>('.atlas-city-favorite-button')
-        if (favoriteButton) {
-          favoriteButton.textContent = isFavorite ? '★' : '☆'
-          favoriteButton.setAttribute('aria-label', isFavorite ? 'Remove favorite city' : 'Favorite city')
-        }
-      })
+      if (isUpdating) {
+        return
+      }
 
       const cityList = document.querySelector<HTMLElement>('.atlas-city-list')
-      cityList?.classList.toggle('has-favorites', favoriteIds.length > 0)
+      if (!cityList) {
+        return
+      }
+
+      isUpdating = true
+
+      try {
+        const favoriteIds = getFavoriteCityIds()
+        const favoriteSet = new Set(favoriteIds)
+        const options = Array.from(cityList.querySelectorAll<HTMLButtonElement>('.atlas-city-option'))
+
+        options.forEach((option) => {
+          const cityId = option.dataset.favoriteCityId || getCityOptionId(option)
+          const isFavorite = favoriteSet.has(cityId)
+          const shouldHide = favoriteIds.length > 0 && !isFavorite
+
+          if (option.dataset.favoriteCityId !== cityId) {
+            option.dataset.favoriteCityId = cityId
+          }
+
+          option.classList.toggle('is-favorite', isFavorite)
+          option.hidden = shouldHide
+
+          let favoriteButton = option.querySelector<HTMLElement>('.atlas-city-favorite-button')
+          if (!favoriteButton) {
+            favoriteButton = document.createElement('span')
+            favoriteButton.className = 'atlas-city-favorite-button'
+            favoriteButton.setAttribute('role', 'button')
+            favoriteButton.setAttribute('tabindex', '0')
+            favoriteButton.addEventListener('click', (event) => {
+              event.preventDefault()
+              event.stopPropagation()
+              const currentIds = getFavoriteCityIds()
+              const id = option.dataset.favoriteCityId || getCityOptionId(option)
+              const nextIds = currentIds.includes(id) ? currentIds.filter((entry) => entry !== id) : [...currentIds, id]
+              setFavoriteCityIds(nextIds)
+              scheduleFavoritesUpdate()
+            })
+            favoriteButton.addEventListener('keydown', (event) => {
+              if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault()
+                favoriteButton?.click()
+              }
+            })
+            option.appendChild(favoriteButton)
+          }
+
+          setTextIfChanged(favoriteButton, isFavorite ? '★' : '☆')
+          setAttributeIfChanged(favoriteButton, 'aria-label', isFavorite ? 'Remove favorite city' : 'Favorite city')
+        })
+
+        cityList.classList.toggle('has-favorites', favoriteIds.length > 0)
+      } finally {
+        isUpdating = false
+      }
     }
 
-    updateFavorites()
+    function scheduleFavoritesUpdate() {
+      if (!frame) {
+        frame = window.requestAnimationFrame(updateFavorites)
+      }
+    }
 
-    const observer = new MutationObserver(updateFavorites)
+    scheduleFavoritesUpdate()
+
+    const observer = new MutationObserver(() => {
+      if (!isUpdating) {
+        scheduleFavoritesUpdate()
+      }
+    })
     observer.observe(document.body, { childList: true, subtree: true })
 
-    return () => observer.disconnect()
+    return () => {
+      if (frame) window.cancelAnimationFrame(frame)
+      observer.disconnect()
+    }
   }, [])
 }
 
 function useCitySelectionBackButton() {
   useEffect(() => {
+    let frame = 0
+    let isUpdating = false
+
     function goBackToAtlas() {
       const currentCityOption = document.querySelector<HTMLButtonElement>('.atlas-city-option.is-favorite, .atlas-city-option')
 
@@ -231,29 +318,55 @@ function useCitySelectionBackButton() {
     }
 
     function ensureBackButton() {
-      const heading = document.querySelector<HTMLElement>('.atlas-city-selection-heading')
+      frame = 0
 
-      if (!heading || heading.querySelector('.atlas-city-back-button')) {
-        heading?.querySelector('p')?.remove()
+      if (isUpdating) {
         return
       }
 
-      heading.querySelector('p')?.remove()
-      const button = document.createElement('button')
-      button.className = 'atlas-city-back-button'
-      button.type = 'button'
-      button.setAttribute('aria-label', 'Back to atlas')
-      button.textContent = '‹'
-      button.addEventListener('click', goBackToAtlas)
-      heading.prepend(button)
+      const heading = document.querySelector<HTMLElement>('.atlas-city-selection-heading')
+      if (!heading) {
+        return
+      }
+
+      isUpdating = true
+
+      try {
+        heading.querySelector('p')?.remove()
+
+        if (heading.querySelector('.atlas-city-back-button')) {
+          return
+        }
+
+        const button = document.createElement('button')
+        button.className = 'atlas-city-back-button'
+        button.type = 'button'
+        button.setAttribute('aria-label', 'Back to atlas')
+        button.textContent = '‹'
+        button.addEventListener('click', goBackToAtlas)
+        heading.prepend(button)
+      } finally {
+        isUpdating = false
+      }
     }
 
-    ensureBackButton()
+    function scheduleBackButtonUpdate() {
+      if (!frame) {
+        frame = window.requestAnimationFrame(ensureBackButton)
+      }
+    }
 
-    const observer = new MutationObserver(ensureBackButton)
+    scheduleBackButtonUpdate()
+
+    const observer = new MutationObserver(() => {
+      if (!isUpdating) {
+        scheduleBackButtonUpdate()
+      }
+    })
     observer.observe(document.body, { childList: true, subtree: true })
 
     return () => {
+      if (frame) window.cancelAnimationFrame(frame)
       observer.disconnect()
       document.querySelectorAll<HTMLButtonElement>('.atlas-city-back-button').forEach((button) => {
         button.removeEventListener('click', goBackToAtlas)
