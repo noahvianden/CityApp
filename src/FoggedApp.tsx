@@ -10,6 +10,7 @@ import { installCityStyleFetchPatch } from './atlasStyle'
 import { installAtlasUiTweaks } from './atlasUiTweaks'
 import App from './App'
 import './atlasFogOverlay.css'
+import './atlasInteractionLayout.css'
 
 const favoriteCitiesStorageKey = 'cityapp:atlas-favorite-cities:v1'
 const pendingSearchCitiesStorageKey = 'cityapp:atlas-pending-search-cities:v1'
