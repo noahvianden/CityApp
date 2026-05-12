@@ -129,6 +129,8 @@ $errorHandler = [System.Diagnostics.DataReceivedEventHandler]{
 }
 
 try {
+  $process.add_OutputDataReceived($outputHandler)
+  $process.add_ErrorDataReceived($errorHandler)
   [void]$process.Start()
   $process.BeginOutputReadLine()
   $process.BeginErrorReadLine()
@@ -143,6 +145,8 @@ try {
     $process.WaitForExit()
   }
 
+  $process.remove_OutputDataReceived($outputHandler)
+  $process.remove_ErrorDataReceived($errorHandler)
   $process.Dispose()
   $writer.Dispose()
 }
