@@ -5,11 +5,12 @@
   "type": "module",
   "scripts": {
     "dev": "vite --config config/vite.config.ts",
+    "clean:android-assets": "node scripts/clean-capacitor-assets.mjs",
     "build": "tsc -b config/tsconfig.json && vite build --config config/vite.config.ts",
     "lint": "eslint -c config/eslint.config.js .",
     "test": "vitest run",
     "preview": "vite preview --config config/vite.config.ts",
-    "android:sync": "npm run build && cap sync android",
+    "android:sync": "npm run clean:android-assets && npm run build && cap sync android",
     "android:open": "npm run android:sync && cap open android",
     "android:apk": "npm run android:sync && cd android && gradlew.bat assembleDebug",
     "android:run": "npm run android:sync && cap run android",
