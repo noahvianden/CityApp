@@ -5,6 +5,7 @@ import { installLiveWalkDomBridge } from './liveWalkDomBridge'
 import { installLiveWorldPlacesBridge } from './liveWorldPlacesBridge'
 import FoggedApp from './FoggedApp.tsx'
 
+console.info('[cityprint-build] live-world-places-v1')
 installLiveWalkDomBridge()
 void installLiveWorldPlacesBridge()
 
