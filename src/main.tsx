@@ -1,7 +1,6 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import './index.css'
-import './atlasInteractionLayout.css'
 import { installLiveWalkDomBridge } from './liveWalkDomBridge'
 import { installLiveWorldPlacesBridge } from './liveWorldPlacesBridge'
 import { installPlaceDiscoveryOverlayBridge } from './placeDiscoveryOverlayBridge'
