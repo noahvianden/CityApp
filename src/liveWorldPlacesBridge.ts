@@ -43,9 +43,9 @@ const pointSourceId = 'atlas-point-source'
 const livePlacesSourceId = 'atlas-live-world-places-source'
 const livePlacesCircleLayerId = 'atlas-live-world-places-circle'
 const livePlacesLabelLayerId = 'atlas-live-world-places-label'
-const storagePrefix = 'cityapp:live-world-places:v1:'
+const storagePrefix = 'cityapp:live-world-places:v2:'
 const overpassEndpoint = 'https://overpass-api.de/api/interpreter'
-const livePlaceRadiusMeters = 2500
+const livePlaceRadiusMeters = 1500
 const livePlaceLimit = 48
 const cacheTtlMs = 12 * 60 * 60 * 1000
 const states = new WeakMap<MapInstance, LivePlacesState>()
@@ -224,7 +224,7 @@ function buildOverpassQuery(center: { lng: number, lat: number }) {
   node(around:${around})["name"]["historic"];
   way(around:${around})["name"]["historic"];
 );
-out center tags ${livePlaceLimit};`
+out center tags;`
 }
 
 function getCategory(tags: Record<string, string | undefined>): LivePlaceCategory | null {
@@ -422,7 +422,7 @@ function scheduleLivePlaceRefresh(state: LivePlacesState, force = false) {
     state.lastFetchKey = fetchKey
     state.lastFetchAt = Date.now()
     setLivePlaces(state.map, cached)
-    console.info(`[atlas-live-places] cache ${JSON.stringify({ places: cached.features.length, cityKey: state.cityKey })}`)
+    console.info(`[atlas-live-places] cache ${JSON.stringify({ places: cached.features.length, cityKey: state.cityKey, radiusM: livePlaceRadiusMeters })}`)
     return
   }
 
@@ -431,15 +431,16 @@ function scheduleLivePlaceRefresh(state: LivePlacesState, force = false) {
   state.lastFetchAt = Date.now()
   void fetchLivePlaces(state, fetchKey, center)
     .then((collection) => {
+      if (state.lastFetchKey !== fetchKey) return
       setLivePlaces(state.map, collection)
-      console.info(`[atlas-live-places] loaded ${JSON.stringify({ places: collection.features.length, cityKey: state.cityKey })}`)
+      console.info(`[atlas-live-places] loaded ${JSON.stringify({ places: collection.features.length, cityKey: state.cityKey, radiusM: livePlaceRadiusMeters, center })}`)
     })
     .catch((error: unknown) => {
       console.warn('[atlas-live-places] request failed', error)
-      setLivePlaces(state.map, emptyPlaces)
+      if (state.lastFetchKey === fetchKey) setLivePlaces(state.map, emptyPlaces)
     })
     .finally(() => {
-      state.isFetching = false
+      if (state.lastFetchKey === fetchKey) state.isFetching = false
     })
 }
 
