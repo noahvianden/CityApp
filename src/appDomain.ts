@@ -54,6 +54,7 @@ type MapLibreMap = import('maplibre-gl').Map
 
 type MapLibrePointProperties = {
   accuracyRadius: number
+  revealRadiusMeters: number
   label: string
   pointColor: string
 }
@@ -85,6 +86,10 @@ export const cityStyleUrl = `${import.meta.env.BASE_URL}city-style.json`
 export const gpsNudgeMeters = 10
 export const metersPerLatitudeDegree = 111_320
 export const placeOverviewZoom = 15.25
+export const fullRevealRadiusMeters = 82
+export const lowQualityRevealRadiusMeters = 34
+const fullRevealGpsAccuracyM = 25
+const maximumAcceptedGpsAccuracyM = 50
 
 export const appTabs: AppTabItem[] = [
   { key: 'atlas', icon: 'A', label: 'Atlas', dummyTitle: 'Atlas', dummyBody: 'Explore the current city boundary.' },
@@ -190,12 +195,35 @@ export function getAccuracyRadius(accuracyM: number | undefined) {
   return Math.min(Math.max(accuracyM / 3, 14), 42)
 }
 
+export function getRevealRadiusMeters(accuracyM: number | undefined) {
+  const accuracy = typeof accuracyM === 'number' && Number.isFinite(accuracyM) ? accuracyM : null
+
+  if (accuracy === null) {
+    return fullRevealRadiusMeters
+  }
+
+  if (accuracy <= fullRevealGpsAccuracyM) {
+    return fullRevealRadiusMeters
+  }
+
+  if (accuracy >= maximumAcceptedGpsAccuracyM) {
+    return lowQualityRevealRadiusMeters
+  }
+
+  const accuracyRange = maximumAcceptedGpsAccuracyM - fullRevealGpsAccuracyM
+  const quality = 1 - (accuracy - fullRevealGpsAccuracyM) / accuracyRange
+  const revealRange = fullRevealRadiusMeters - lowQualityRevealRadiusMeters
+
+  return Math.round(lowQualityRevealRadiusMeters + quality * revealRange)
+}
+
 export function pointToFeature(point: AtlasPoint, mode: LocationMode): MapLibrePointFeature {
   return {
     type: 'Feature',
     geometry: { type: 'Point', coordinates: [point.longitude, point.latitude] },
     properties: {
       accuracyRadius: getAccuracyRadius(point.accuracyM),
+      revealRadiusMeters: getRevealRadiusMeters(point.accuracyM),
       label: mode === 'gps' ? 'GPS' : 'Simulated',
       pointColor: mode === 'gps' ? '#2f7d57' : '#d78b35',
     },

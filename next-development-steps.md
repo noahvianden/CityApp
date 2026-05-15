@@ -30,11 +30,13 @@ The user should no longer see privacy as one of the main product pillars.
 - Route city and district completion UI into `Progress`.
 - Make sure any bridge code or DOM enhancement logic that currently looks for `memories`, `stats`, or `privacy` is updated to the new tab names.
 
-**Status - 2026-05-15**
+**Status - 2026-05-16**
 
-Completed the navigation rename in the React tab model and DOM enhancement bridge. The app now exposes `Atlas`, `Walks`, `Journal`, and `Progress`; saved-place UI routes through Journal, reveal metrics route through Progress, and the Privacy-era tab has been removed from the main navigation. Remaining work in this area is deeper content only: real walk-card data for Walks, richer Journal state, and Progress foundations after reveal persistence is stronger.
+Completed the first live-reveal quality pass. GPS point features now carry an accuracy-aware reveal radius, and the fog bridge uses that radius when it writes reveal points, so weaker samples clear less map instead of behaving like perfect fixes. Per-city fog persistence and interpolation are still in place.
 
-Recommended next slice: move to step 3 and improve the GPS fog reveal pipeline by accepting quality-filtered samples, interpolating between accepted positions, and persisting reveal points per city.
+Remaining work in this area: feed native watch samples directly into the reveal pipeline instead of routing through a fresh GPS lookup, then tighten any remaining sample rejection rules.
+
+Recommended next slice: keep step 3 and wire live GPS samples straight through the reveal path so the app uses the actual watch sample and not a re-fetched location update.
 
 ## 2. Make Atlas The Primary Product Surface
 

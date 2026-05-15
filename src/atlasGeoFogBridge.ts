@@ -17,6 +17,7 @@ type MapInstance = import('maplibre-gl').Map
 type RevealPoint = { lng: number; lat: number; radiusM: number; revealedAt: number }
 type AtlasFogSnapshot = { cityKey: string | null; progress: number; revealedPoints: number }
 type UpdatableGeoJsonSource = { setData: (data: unknown) => void }
+type RevealPointFeatureProperties = { revealRadiusMeters?: unknown }
 type PatchableMap = typeof import('maplibre-gl').Map.prototype & { __atlasFogPatched?: boolean }
 type FogState = {
   map: MapInstance
@@ -25,6 +26,7 @@ type FogState = {
   cityKey: string | null
   points: RevealPoint[]
   lastCenter: LngLatPoint | null
+  lastRadiusM: number | null
   progress: number
   canvas: HTMLCanvasElement | null
   buffer: HTMLCanvasElement | null
@@ -46,10 +48,10 @@ const fogColor = '#c6c9c7'
 const districtBoundaryColor = '#49b7a4'
 const cityOutlineColor = '#2f8f7f'
 const outsideAreaColor = '#0d3b2f'
-const revealRadiusMeters = 82
 const revealSpacingMeters = 10
 const maxRevealPoints = 3200
 const progressCells = 36
+const fallbackRevealRadiusMeters = 82
 const states = new WeakMap<MapInstance, FogState>()
 const activeStates = new Set<FogState>()
 const listeners = new Set<(snapshot: AtlasFogSnapshot) => void>()
@@ -67,6 +69,7 @@ function getState(map: MapInstance) {
     cityKey: null,
     points: [],
     lastCenter: null,
+    lastRadiusM: null,
     progress: 0,
     canvas: null,
     buffer: null,
@@ -110,6 +113,7 @@ function refreshCity(state: FogState) {
   state.cityKey = nextKey
   state.points = loadPoints(nextKey)
   state.lastCenter = null
+  state.lastRadiusM = null
 }
 
 function noise(seed: number) {
@@ -338,12 +342,20 @@ function updateState(state: FogState) {
 
 function extractPoint(data: unknown) {
   const geometry = (data as { geometry?: unknown })?.geometry as { type?: unknown; coordinates?: unknown } | undefined
-  return geometry?.type === 'Point' && isCoordinate(geometry.coordinates)
-    ? { lng: geometry.coordinates[0], lat: geometry.coordinates[1] }
-    : null
+  const properties = (data as { properties?: unknown })?.properties as RevealPointFeatureProperties | undefined
+  const radiusM = Number(properties?.revealRadiusMeters)
+
+  if (geometry?.type !== 'Point' || !isCoordinate(geometry.coordinates)) {
+    return null
+  }
+
+  return {
+    point: { lng: geometry.coordinates[0], lat: geometry.coordinates[1] },
+    radiusM: Number.isFinite(radiusM) && radiusM > 0 ? radiusM : fallbackRevealRadiusMeters,
+  }
 }
 
-function createRevealPoints(from: { lng: number; lat: number } | null, to: { lng: number; lat: number }) {
+function createRevealPoints(from: { lng: number; lat: number } | null, to: { lng: number; lat: number }, radiusM: number) {
   const distance = from ? metersBetweenLngLat(from, to) : 0
   const steps = Math.max(1, Math.ceil(distance / revealSpacingMeters))
   const now = Date.now()
@@ -353,25 +365,27 @@ function createRevealPoints(from: { lng: number; lat: number } | null, to: { lng
     points.push({
       lng: from ? from.lng + (to.lng - from.lng) * t : to.lng,
       lat: from ? from.lat + (to.lat - from.lat) * t : to.lat,
-      radiusM: revealRadiusMeters * (0.86 + noise(now + index * 19) * 0.24),
+      radiusM: radiusM * (0.86 + noise(now + index * 19) * 0.24),
       revealedAt: now,
     })
   }
   return points
 }
 
-function revealPoint(map: MapInstance, point: { lng: number; lat: number }) {
+function revealPoint(map: MapInstance, point: { lng: number; lat: number }, radiusM: number) {
   const state = getState(map)
   refreshCity(state)
   if (!insideBoundary(point, state.boundary)) return
   const previous = state.lastCenter
   const alreadyNear = previous ? metersBetweenLngLat(previous, point) < revealSpacingMeters : false
   if (!alreadyNear) {
+    const segmentRadiusM = state.lastRadiusM ? Math.min(state.lastRadiusM, radiusM) : radiusM
     state.points = [
       ...state.points,
-      ...createRevealPoints(previous, point).filter((candidate) => insideBoundary(candidate, state.boundary)),
+      ...createRevealPoints(previous, point, segmentRadiusM).filter((candidate) => insideBoundary(candidate, state.boundary)),
     ].slice(-maxRevealPoints)
     state.lastCenter = point
+    state.lastRadiusM = radiusM
     savePoints(state)
   }
   updateState(state)
@@ -388,7 +402,7 @@ function wrapPointSource(map: MapInstance) {
   source.setData = (data: unknown) => {
     originalSetData(data)
     const point = extractPoint(data)
-    if (point) revealPoint(map, point)
+    if (point) revealPoint(map, point.point, point.radiusM)
   }
 }
 
@@ -406,7 +420,7 @@ function handleSource(map: MapInstance, id: string, source: unknown) {
   if (id === pointSourceId) {
     wrapPointSource(map)
     const point = extractPoint((source as { data?: unknown })?.data)
-    if (point) revealPoint(map, point)
+    if (point) revealPoint(map, point.point, point.radiusM)
   }
 }
 
