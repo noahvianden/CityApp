@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { Crosshair, Route } from 'lucide-react'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import './App.css'
@@ -95,6 +95,22 @@ const appTabs: AppTabItem[] = [
 
 function getAppTab(tab: AppTab) {
   return appTabs.find((item) => item.key === tab) ?? appTabs[0]
+}
+
+function getLocationModeLabel(mode: LocationMode) {
+  return mode === 'gps' ? 'GPS mode' : 'Simulated mode'
+}
+
+function getAtlasHeaderMeta(atlas: BoundedAtlasPoint | null, mode: LocationMode, isLocating: boolean, locationMessage: string) {
+  if (isLocating) {
+    return locationMessage
+  }
+
+  if (!atlas) {
+    return locationMessage
+  }
+
+  return `${getLocationModeLabel(mode)} - ${atlas.cityStatus} - ${atlas.cityCountry}`
 }
 
 function clamp(value: number, min: number, max: number) {
@@ -650,6 +666,9 @@ function App() {
     : 'empty-atlas'
   const activeTabItem = getAppTab(activeTab)
   const displayedTitle = activeTab === 'atlas' ? activeAtlas?.cityName ?? 'City' : activeTabItem.label
+  const displayedMeta = activeTab === 'atlas'
+    ? getAtlasHeaderMeta(activeAtlas, mode, isLocating, locationMessage)
+    : ''
   const shouldShowAtlasMap = activeTab === 'atlas' && !isCitySelectionOpen
   const mapFrameClassName = isMapFullscreen ? 'atlas-map-frame fullscreen' : 'atlas-map-frame'
 
@@ -668,16 +687,7 @@ function App() {
     }
   }, [])
 
-  useEffect(() => {
-    if (bootedSimulatedLocation.current) {
-      return
-    }
-
-    bootedSimulatedLocation.current = true
-    void activateSimulatedLocation()
-  }, [])
-
-  function rememberAtlasCity(atlas: BoundedAtlasPoint, badge: string, nextMode: LocationMode) {
+  const rememberAtlasCity = useCallback((atlas: BoundedAtlasPoint, badge: string, nextMode: LocationMode) => {
     setCityHistory((currentHistory) => {
       const nextCity = {
         cityId: atlas.cityId,
@@ -691,9 +701,9 @@ function App() {
 
       return [nextCity, ...withoutDuplicate].slice(0, 8)
     })
-  }
+  }, [])
 
-  async function activateSimulatedLocation() {
+  const activateSimulatedLocation = useCallback(async () => {
     setMode('simulated')
     setIsLocating(true)
     setLocationMessage('Stadtgrenze wird geladen...')
@@ -710,7 +720,16 @@ function App() {
     } finally {
       setIsLocating(false)
     }
-  }
+  }, [rememberAtlasCity])
+
+  useEffect(() => {
+    if (bootedSimulatedLocation.current) {
+      return
+    }
+
+    bootedSimulatedLocation.current = true
+    void activateSimulatedLocation()
+  }, [activateSimulatedLocation])
 
   async function useGpsLocation() {
     setMode('gps')
@@ -818,16 +837,17 @@ function App() {
         <header className="atlas-header">
           <h1>
             {activeTab === 'atlas' ? (
-              <button
-                className="atlas-city-title-button"
-                type="button"
-                onClick={openCitySelection}
-                aria-label={`Open city selection for ${displayedTitle}`}
-              >
-                <span>{displayedTitle}</span>
-              </button>
-            ) : displayedTitle}
+                <button
+                  className="atlas-city-title-button"
+                  type="button"
+                  onClick={openCitySelection}
+                  aria-label={`Open city selection for ${displayedTitle}`}
+                >
+                  <span>{displayedTitle}</span>
+                </button>
+              ) : displayedTitle}
           </h1>
+          {activeTab === 'atlas' ? <p className="atlas-header-meta">{displayedMeta}</p> : null}
         </header>
       ) : null}
 
