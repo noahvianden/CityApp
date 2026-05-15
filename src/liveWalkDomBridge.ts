@@ -1,3 +1,4 @@
+import { nativeGpsSampleEventName } from './appDomain'
 import { isNativeRuntime, requestNativeLocationPermission, watchNativeLocation } from './nativeRuntime'
 import type { GpsLocationSample } from './locationAdapter'
 
@@ -8,7 +9,6 @@ let stopNativeWatch: (() => void) | null = null
 let lastForwardedSample: GpsLocationSample | null = null
 let lastRefreshAt = 0
 let pendingRefreshFrame = 0
-let isRefreshingFromWatch = false
 let isStartingWatch = false
 let isInstalled = false
 
@@ -62,7 +62,7 @@ function shouldForwardSample(sample: GpsLocationSample) {
   return distanceMeters(lastForwardedSample, sample) >= liveWalkRefreshDistanceMeters
 }
 
-function replayGpsButtonFromWatch(sample: GpsLocationSample) {
+function dispatchNativeGpsSample(sample: GpsLocationSample) {
   if (!shouldForwardSample(sample)) {
     return
   }
@@ -73,19 +73,9 @@ function replayGpsButtonFromWatch(sample: GpsLocationSample) {
 
   pendingRefreshFrame = window.requestAnimationFrame(() => {
     pendingRefreshFrame = 0
-    const gpsButton = getGpsButton()
-
-    if (!gpsButton) {
-      return
-    }
-
     lastRefreshAt = Date.now()
     lastForwardedSample = sample
-    isRefreshingFromWatch = true
-    gpsButton.click()
-    window.setTimeout(() => {
-      isRefreshingFromWatch = false
-    }, 0)
+    window.dispatchEvent(new CustomEvent<GpsLocationSample>(nativeGpsSampleEventName, { detail: sample }))
   })
 }
 
@@ -108,7 +98,7 @@ async function startLiveWalkWatch() {
     stopNativeWatch = await watchNativeLocation(
       (sample) => {
         markLiveWalkActive(true)
-        replayGpsButtonFromWatch(sample)
+        dispatchNativeGpsSample(sample)
       },
       (message) => {
         console.warn('[atlas-live] native watch error', message)
@@ -143,10 +133,6 @@ function handleDocumentClick(event: MouseEvent) {
   }
 
   if (button === getGpsButton()) {
-    if (isRefreshingFromWatch) {
-      return
-    }
-
     if (isNativeRuntime()) {
       stopOriginalGpsClick(event)
       void startLiveWalkWatch()

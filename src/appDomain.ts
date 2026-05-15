@@ -1,5 +1,6 @@
 import type { GpsLocationSample } from './locationAdapter'
 import type { BoundedAtlasPoint } from './nominatimCityBoundaries'
+import { insideBoundary, normalizeBoundary } from './geoSpatial'
 import { getNativeCurrentLocation, isNativeRuntime, requestNativeLocationPermission } from './nativeRuntime'
 
 export type LocationMode = 'gps' | 'simulated'
@@ -88,6 +89,7 @@ export const metersPerLatitudeDegree = 111_320
 export const placeOverviewZoom = 15.25
 export const fullRevealRadiusMeters = 82
 export const lowQualityRevealRadiusMeters = 34
+export const nativeGpsSampleEventName = 'cityprint:native-gps-sample'
 const fullRevealGpsAccuracyM = 25
 const maximumAcceptedGpsAccuracyM = 50
 
@@ -228,6 +230,18 @@ export function pointToFeature(point: AtlasPoint, mode: LocationMode): MapLibreP
       pointColor: mode === 'gps' ? '#2f7d57' : '#d78b35',
     },
   }
+}
+
+export function gpsSampleToAtlasPoint(sample: GpsLocationSample): AtlasPoint {
+  return {
+    latitude: sample.latitude,
+    longitude: sample.longitude,
+    accuracyM: sample.accuracyM,
+  }
+}
+
+export function isAtlasPointInsideBoundary(point: AtlasPoint, atlas: BoundedAtlasPoint) {
+  return insideBoundary({ lng: point.longitude, lat: point.latitude }, normalizeBoundary(atlas.boundary))
 }
 
 export function boundaryRingsFromBoundary(boundary: BoundedAtlasPoint['boundary']) {

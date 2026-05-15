@@ -5,18 +5,21 @@ import {
   getAppTab,
   getAtlasFrameSize,
   getCurrentLocation,
+  gpsSampleToAtlasPoint,
   gpsNudgeMeters,
+  isAtlasPointInsideBoundary,
   metersPerLatitudeDegree,
+  nativeGpsSampleEventName,
   searchCityBoundary,
   upsertCityHistory,
   type AppTab,
-  type AtlasPoint,
   type CityHistoryItem,
   type GpsNudgeDirection,
   type LocationMode,
   type MapViewAction,
   type MapViewActionType,
 } from '../appDomain'
+import type { GpsLocationSample } from '../locationAdapter'
 import { fetchBoundaryForGpsPoint, fetchSimulatedCityBoundary, type BoundedAtlasPoint } from '../nominatimCityBoundaries'
 import { useViewportSize } from './useViewportSize'
 
@@ -55,6 +58,42 @@ export function useAtlasController() {
     setCityHistory((currentHistory) => upsertCityHistory(currentHistory, atlas, badge, nextMode))
   }, [])
 
+  const applyGpsSample = useCallback(
+    async (sample: GpsLocationSample) => {
+      const nextPoint = gpsSampleToAtlasPoint(sample)
+      setMode('gps')
+
+      if (activeAtlas && isAtlasPointInsideBoundary(nextPoint, activeAtlas)) {
+        const nextAtlas = {
+          ...activeAtlas,
+          point: nextPoint,
+        }
+
+        setIsLocating(false)
+        setActiveAtlas(nextAtlas)
+        return
+      }
+
+      setIsLocating(true)
+      setLocationMessage('GPS-Stadtgrenze wird geladen...')
+
+      try {
+        const nextBoundary = await fetchBoundaryForGpsPoint(nextPoint)
+
+        if (nextBoundary) {
+          setActiveAtlas(nextBoundary)
+          updateCityHistory(nextBoundary, 'gps', 'gps')
+          return
+        }
+
+        setLocationMessage('Fuer diesen GPS-Punkt wurde keine Stadtgrenze gefunden.')
+      } finally {
+        setIsLocating(false)
+      }
+    },
+    [activeAtlas, updateCityHistory],
+  )
+
   const activateSimulatedLocation = useCallback(async () => {
     setMode('simulated')
     setIsLocating(true)
@@ -87,24 +126,11 @@ export function useAtlasController() {
         return
       }
 
-      const nextPoint: AtlasPoint = {
-        latitude: sample.latitude,
-        longitude: sample.longitude,
-        accuracyM: sample.accuracyM,
-      }
-      const nextBoundary = await fetchBoundaryForGpsPoint(nextPoint)
-
-      if (nextBoundary) {
-        setActiveAtlas(nextBoundary)
-        updateCityHistory(nextBoundary, 'gps', 'gps')
-        return
-      }
-
-      setLocationMessage('Fuer diesen GPS-Punkt wurde keine Stadtgrenze gefunden.')
+      await applyGpsSample(sample)
     } finally {
       setIsLocating(false)
     }
-  }, [updateCityHistory])
+  }, [applyGpsSample])
 
   const searchForCity = useCallback(
     async (query: string) => {
@@ -192,6 +218,22 @@ export function useAtlasController() {
     bootedSimulatedLocation.current = true
     void activateSimulatedLocation()
   }, [activateSimulatedLocation])
+
+  useEffect(() => {
+    function handleNativeGpsSample(event: Event) {
+      const sample = (event as CustomEvent<GpsLocationSample>).detail
+
+      if (sample?.kind === 'gps') {
+        void applyGpsSample(sample)
+      }
+    }
+
+    window.addEventListener(nativeGpsSampleEventName, handleNativeGpsSample)
+
+    return () => {
+      window.removeEventListener(nativeGpsSampleEventName, handleNativeGpsSample)
+    }
+  }, [applyGpsSample])
 
   return {
     activeAtlas,

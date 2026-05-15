@@ -32,11 +32,11 @@ The user should no longer see privacy as one of the main product pillars.
 
 **Status - 2026-05-16**
 
-Completed the first live-reveal quality pass. GPS point features now carry an accuracy-aware reveal radius, and the fog bridge uses that radius when it writes reveal points, so weaker samples clear less map instead of behaving like perfect fixes. Per-city fog persistence and interpolation are still in place.
+Completed earlier. The main tabs are now `Atlas`, `Walks`, `Journal`, and `Progress`, with `Atlas` as the default entry point and privacy-era tab language removed from the primary navigation.
 
-Remaining work in this area: feed native watch samples directly into the reveal pipeline instead of routing through a fresh GPS lookup, then tighten any remaining sample rejection rules.
+Remaining work in this area: none for the current Atlas/live reveal phase.
 
-Recommended next slice: keep step 3 and wire live GPS samples straight through the reveal path so the app uses the actual watch sample and not a re-fetched location update.
+Recommended next slice: continue with step 3 live GPS reveal quality before moving into automatic walk detection.
 
 ## 2. Make Atlas The Primary Product Surface
 
@@ -80,6 +80,16 @@ If GPS quality is weak, the app should avoid strange jumps or overly large revea
 - Persist reveal data per city, not globally.
 - Keep the current organic fog canvas, but tune radius, opacity, and transitions toward a soft game-board feel.
 - Publish reveal progress so Atlas and Progress can read it.
+
+**Status - 2026-05-16**
+
+Completed the direct native watch-sample handoff. Native watch samples now dispatch a typed `cityprint:native-gps-sample` event, and the Atlas controller applies that exact sample to the active map point when it remains inside the current city boundary. This keeps live fog reveal on the real watch sample instead of clicking the GPS control and asking for a fresh current-position lookup. If the sample leaves the active city boundary, the app still fetches a new boundary for the GPS point.
+
+Also completed earlier in this area: GPS point features carry an accuracy-aware reveal radius, and the fog bridge uses that radius when writing reveal points. Per-city fog persistence and interpolation remain in place.
+
+Remaining work in this area: tighten sample rejection for weak or implausible GPS samples, then start the automatic walk detection state machine.
+
+Recommended next slice: add a small GPS sample acceptance helper that rejects stale, very inaccurate, or jumpy watch samples before they update the Atlas point or reveal fog.
 
 ## 4. Add Automatic Walk Detection
 
