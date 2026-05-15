@@ -136,9 +136,7 @@ export function distanceMeters(a: GeoPoint, b: GeoPoint) {
   const longitudeDelta = degreesToRadians(b.longitude - a.longitude)
   const startLatitude = degreesToRadians(a.latitude)
   const endLatitude = degreesToRadians(b.latitude)
-  const haversine =
-    Math.sin(latitudeDelta / 2) ** 2 +
-    Math.cos(startLatitude) * Math.cos(endLatitude) * Math.sin(longitudeDelta / 2) ** 2
+  const haversine = Math.sin(latitudeDelta / 2) ** 2 + Math.cos(startLatitude) * Math.cos(endLatitude) * Math.sin(longitudeDelta / 2) ** 2
 
   return 2 * earthRadiusMeters * Math.atan2(Math.sqrt(haversine), Math.sqrt(1 - haversine))
 }

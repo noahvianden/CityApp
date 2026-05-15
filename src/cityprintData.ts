@@ -190,12 +190,7 @@ export const genericCurrentCity: City = {
       'M0 388 L176 350 L342 384 L514 356 L700 392',
       'M0 584 L190 612 L344 578 L526 615 L700 580',
     ],
-    streetsMinor: [
-      'M212 0 L198 800',
-      'M458 0 L438 800',
-      'M0 284 L700 286',
-      'M0 494 L700 486',
-    ],
+    streetsMinor: ['M212 0 L198 800', 'M458 0 L438 800', 'M0 284 L700 286', 'M0 494 L700 486'],
     regions: [
       {
         id: 'local-center',
@@ -284,7 +279,7 @@ export const cities: City[] = [
         name: 'Brandenburg Gate',
         category: 'landmark',
         district: 'Old Center',
-        description: 'Historic neoclassical city gate and one of Berlin\'s most recognizable landmarks.',
+        description: "Historic neoclassical city gate and one of Berlin's most recognizable landmarks.",
         discoveryContext: 'Revealed when the walk reaches the historic center around Pariser Platz.',
         cell: '3-5',
         x: 50,
@@ -324,7 +319,7 @@ export const cities: City[] = [
         category: 'market',
         district: 'Market North',
         description: 'Historic market hall known for food stalls, local producers, and events.',
-        discoveryContext: 'Revealed when the route crosses into Kreuzberg\'s market streets.',
+        discoveryContext: "Revealed when the route crosses into Kreuzberg's market streets.",
         cell: '4-2',
         x: 62,
         y: 28,
@@ -349,7 +344,7 @@ export const cities: City[] = [
         name: 'Berlin Hauptbahnhof',
         category: 'landmark',
         district: 'Station South',
-        description: 'Berlin\'s central railway station, connecting the walk to the wider city.',
+        description: "Berlin's central railway station, connecting the walk to the wider city.",
         discoveryContext: 'Saved from a previous walk near the southern tracks.',
         cell: '4-6',
         x: 63,
@@ -372,12 +367,7 @@ export const cities: City[] = [
         'M0 388 L176 350 L342 384 L514 356 L700 392',
         'M0 584 L190 612 L344 578 L526 615 L700 580',
       ],
-      streetsMinor: [
-        'M212 0 L198 800',
-        'M458 0 L438 800',
-        'M0 284 L700 286',
-        'M0 494 L700 486',
-      ],
+      streetsMinor: ['M212 0 L198 800', 'M458 0 L438 800', 'M0 284 L700 286', 'M0 494 L700 486'],
       regions: [
         {
           id: 'canal',
@@ -509,9 +499,7 @@ export const cities: City[] = [
     ],
     map: {
       water: ['M0 646 C108 624 174 680 308 660 S514 630 700 684 L700 800 L0 800 Z'],
-      parks: [
-        'M498 224 C590 186 676 222 670 312 C664 390 580 420 520 370 C474 330 474 252 498 224 Z',
-      ],
+      parks: ['M498 224 C590 186 676 222 670 312 C664 390 580 420 520 370 C474 330 474 252 498 224 Z'],
       streetsMajor: [
         'M82 0 L110 148 L112 292 L82 452 L136 800',
         'M326 0 L306 182 L342 338 L322 532 L360 800',
@@ -520,12 +508,7 @@ export const cities: City[] = [
         'M0 396 L180 368 L340 396 L518 366 L700 394',
         'M0 592 L188 620 L338 594 L526 620 L700 590',
       ],
-      streetsMinor: [
-        'M220 0 L210 800',
-        'M458 0 L438 800',
-        'M0 286 L700 286',
-        'M0 494 L700 486',
-      ],
+      streetsMinor: ['M220 0 L210 800', 'M458 0 L438 800', 'M0 286 L700 286', 'M0 494 L700 486'],
       regions: [
         {
           id: 'harbor',

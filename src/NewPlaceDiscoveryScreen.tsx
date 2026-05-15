@@ -161,8 +161,12 @@ export function NewPlaceDiscoveryScreen({
 
         <div className="new-place-discovery-summary-card">
           <div>
-            <span className="new-place-discovery-pill"><Sparkles size={15} /> {discoveryProgressLabel}</span>
-            <p>{neighborhoodLabel} · {revealedMetersLabel} · {routeLabel}</p>
+            <span className="new-place-discovery-pill">
+              <Sparkles size={15} /> {discoveryProgressLabel}
+            </span>
+            <p>
+              {neighborhoodLabel} · {revealedMetersLabel} · {routeLabel}
+            </p>
           </div>
           <button className="new-place-discovery-primary" type="button" onClick={onContinueWalk}>
             Continue walk <ArrowRight size={17} />
@@ -202,7 +206,9 @@ export function NewPlaceDiscoveryScreen({
                 </span>
                 <span className="new-place-discovery-place-copy">
                   <strong>{place.name}</strong>
-                  <small>{place.category} · {place.district} · {place.distanceLabel}</small>
+                  <small>
+                    {place.category} · {place.district} · {place.distanceLabel}
+                  </small>
                   <em>{place.revealReason}</em>
                 </span>
                 <span className="new-place-discovery-score" aria-label={`${place.matchScore}% match`}>
@@ -216,8 +222,12 @@ export function NewPlaceDiscoveryScreen({
         <article className="new-place-discovery-detail" aria-label={`${activePlace.name} details`}>
           <div className="new-place-discovery-detail-map" aria-hidden="true">
             <div className="new-place-discovery-route-line" />
-            <span className="new-place-discovery-map-pin user"><Navigation size={16} /></span>
-            <span className={`new-place-discovery-map-pin place ${slugify(activePlace.category)}`}><ActiveIcon size={17} /></span>
+            <span className="new-place-discovery-map-pin user">
+              <Navigation size={16} />
+            </span>
+            <span className={`new-place-discovery-map-pin place ${slugify(activePlace.category)}`}>
+              <ActiveIcon size={17} />
+            </span>
           </div>
 
           <div className="new-place-discovery-detail-body">
@@ -226,7 +236,9 @@ export function NewPlaceDiscoveryScreen({
                 <ActiveIcon size={22} />
               </span>
               <div>
-                <p>{activePlace.category} · {activePlace.district}</p>
+                <p>
+                  {activePlace.category} · {activePlace.district}
+                </p>
                 <h2>{activePlace.name}</h2>
               </div>
             </div>
@@ -249,7 +261,9 @@ export function NewPlaceDiscoveryScreen({
             </div>
 
             <div className="new-place-discovery-tags" aria-label="Place tags">
-              {activePlace.tags.map((tag) => <span key={tag}>{tag}</span>)}
+              {activePlace.tags.map((tag) => (
+                <span key={tag}>{tag}</span>
+              ))}
             </div>
 
             <div className="new-place-discovery-actions">

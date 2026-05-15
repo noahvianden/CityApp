@@ -9,13 +9,7 @@ type CitySelectionPanelProps = {
   searchMessage: string
 }
 
-export function CitySelectionPanel({
-  history,
-  isSearching,
-  onSearchSubmit,
-  onSelectCity,
-  searchMessage,
-}: CitySelectionPanelProps) {
+export function CitySelectionPanel({ history, isSearching, onSearchSubmit, onSelectCity, searchMessage }: CitySelectionPanelProps) {
   const [isSearchActive, setIsSearchActive] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const searchInputRef = useRef<HTMLInputElement | null>(null)

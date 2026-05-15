@@ -239,7 +239,7 @@ function getAddressCityNames(address: CityLookupAddress | undefined) {
 
 function parseCityBoundaryCandidate(place: NominatimPlace): CitySearchCandidate | null {
   const boundary = parseBoundaryGeometry(place.geojson)
-  const bounds = boundary ? getBoundsFromBoundary(boundary) ?? parseNominatimBounds(place.boundingbox) : null
+  const bounds = boundary ? (getBoundsFromBoundary(boundary) ?? parseNominatimBounds(place.boundingbox)) : null
   const latitude = Number(place.lat)
   const longitude = Number(place.lon)
 
@@ -270,13 +270,21 @@ function parseCityBoundaryCandidate(place: NominatimPlace): CitySearchCandidate 
 
 function isGermanCityBoundary(candidate: CitySearchCandidate) {
   const isGerman = candidate.countryCode === 'de'
-  const isBoundaryRelation = candidate.osmType === 'relation' && candidate.category === 'boundary' && candidate.placeType === 'administrative'
+  const isBoundaryRelation =
+    candidate.osmType === 'relation' && candidate.category === 'boundary' && candidate.placeType === 'administrative'
   const isCity = candidate.addressType === 'city' || candidate.dePlace === 'city' || candidate.linkedPlace === 'city'
 
   return isGerman && isBoundaryRelation && isCity
 }
 
-function toAtlasPoint(candidate: CitySearchCandidate, cityId: string, cityName: string, cityCountry: string, cityStatus: string, pointOverride?: GeoPoint | null): BoundedAtlasPoint {
+function toAtlasPoint(
+  candidate: CitySearchCandidate,
+  cityId: string,
+  cityName: string,
+  cityCountry: string,
+  cityStatus: string,
+  pointOverride?: GeoPoint | null,
+): BoundedAtlasPoint {
   const point = pointOverride && containsGeoPointInBoundary(pointOverride, candidate.boundary) ? pointOverride : candidate.point
 
   return {

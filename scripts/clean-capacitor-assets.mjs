@@ -1,10 +1,7 @@
 import { rmSync } from 'node:fs'
 import { resolve } from 'node:path'
 
-const pathsToClean = [
-  'dist',
-  'android/app/src/main/assets/public',
-]
+const pathsToClean = ['dist', 'android/app/src/main/assets/public']
 
 for (const relativePath of pathsToClean) {
   const absolutePath = resolve(process.cwd(), relativePath)

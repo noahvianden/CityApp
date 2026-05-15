@@ -53,7 +53,12 @@ function sanitizeStyleExpression(value: unknown): unknown {
   }
 
   if (numericComparisonOperators.has(operator)) {
-    return [operator, sanitizeNumberExpression(value[1]), sanitizeNumberExpression(value[2]), ...value.slice(3).map(sanitizeStyleExpression)]
+    return [
+      operator,
+      sanitizeNumberExpression(value[1]),
+      sanitizeNumberExpression(value[2]),
+      ...value.slice(3).map(sanitizeStyleExpression),
+    ]
   }
 
   if (operator === 'interpolate' || operator === 'interpolate-hcl' || operator === 'interpolate-lab' || operator === 'step') {
@@ -69,9 +74,7 @@ function sanitizeStyleValue(value: unknown): unknown {
   }
 
   if (value && typeof value === 'object') {
-    return Object.fromEntries(
-      Object.entries(value).map(([key, entry]) => [key, sanitizeStyleValue(entry)]),
-    )
+    return Object.fromEntries(Object.entries(value).map(([key, entry]) => [key, sanitizeStyleValue(entry)]))
   }
 
   return value
@@ -108,10 +111,13 @@ export function installCityStyleFetchPatch() {
       return originalFetch!(input, init)
     }
 
-    return loadCityStyle().then((style) => new Response(JSON.stringify(style), {
-      headers: { 'content-type': 'application/json' },
-      status: 200,
-    }))
+    return loadCityStyle().then(
+      (style) =>
+        new Response(JSON.stringify(style), {
+          headers: { 'content-type': 'application/json' },
+          status: 200,
+        }),
+    )
   }) as typeof window.fetch
 
   isFetchPatched = true

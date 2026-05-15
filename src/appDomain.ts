@@ -88,9 +88,27 @@ export const placeOverviewZoom = 15.25
 
 export const appTabs: AppTabItem[] = [
   { key: 'atlas', icon: 'A', label: 'Atlas', dummyTitle: 'Atlas', dummyBody: 'Explore the current city boundary.' },
-  { key: 'memories', icon: 'M', label: 'Memories', dummyTitle: 'Memories coming soon', dummyBody: 'This placeholder will show visited places, saved moments, and city notes.' },
-  { key: 'stats', icon: 'S', label: 'Stats', dummyTitle: 'Stats coming soon', dummyBody: 'This placeholder will show discovery progress, visited areas, and atlas activity.' },
-  { key: 'privacy', icon: 'P', label: 'Privacy', dummyTitle: 'Privacy coming soon', dummyBody: 'This placeholder will show location controls, data choices, and privacy settings.' },
+  {
+    key: 'memories',
+    icon: 'M',
+    label: 'Memories',
+    dummyTitle: 'Memories coming soon',
+    dummyBody: 'This placeholder will show visited places, saved moments, and city notes.',
+  },
+  {
+    key: 'stats',
+    icon: 'S',
+    label: 'Stats',
+    dummyTitle: 'Stats coming soon',
+    dummyBody: 'This placeholder will show discovery progress, visited areas, and atlas activity.',
+  },
+  {
+    key: 'privacy',
+    icon: 'P',
+    label: 'Privacy',
+    dummyTitle: 'Privacy coming soon',
+    dummyBody: 'This placeholder will show location controls, data choices, and privacy settings.',
+  },
 ]
 
 const worldMaskRing: [number, number][] = [
@@ -282,7 +300,7 @@ export async function searchCityBoundary(query: string): Promise<BoundedAtlasPoi
 
   for (const place of payload as NominatimSearchPlace[]) {
     const boundary = parseSearchBoundary(place.geojson)
-    const bounds = boundary ? getBoundsFromSearchBoundary(boundary) ?? parseSearchBounds(place.boundingbox) : null
+    const bounds = boundary ? (getBoundsFromSearchBoundary(boundary) ?? parseSearchBounds(place.boundingbox)) : null
     const latitude = Number(place.lat)
     const longitude = Number(place.lon)
 
@@ -345,9 +363,7 @@ export function getCityDefaultCamera(map: MapLibreMap, atlas: BoundedAtlasPoint)
   }
 
   const centerValue = camera.center as { lng?: number; lat?: number } | [number, number]
-  const center = Array.isArray(centerValue)
-    ? centerValue
-    : [Number(centerValue.lng), Number(centerValue.lat)] as [number, number]
+  const center = Array.isArray(centerValue) ? centerValue : ([Number(centerValue.lng), Number(centerValue.lat)] as [number, number])
 
   return {
     center,

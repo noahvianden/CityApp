@@ -43,7 +43,12 @@ function App() {
           <>
             <div className={atlas.mapFrameClassName} style={atlas.isMapFullscreen ? undefined : atlas.mapFrameStyle}>
               <MapLibreCityMap key={atlas.mapKey} atlas={atlas.activeAtlas} mode={atlas.mode} viewAction={atlas.mapViewAction} />
-              <div className="atlas-map-action-top" role="group" aria-label="Map reset and snap controls" style={{ flexDirection: 'column' }}>
+              <div
+                className="atlas-map-action-top"
+                role="group"
+                aria-label="Map reset and snap controls"
+                style={{ flexDirection: 'column' }}
+              >
                 <button className="atlas-map-action-button" type="button" onClick={() => atlas.requestMapViewAction('default')}>
                   Reset
                 </button>
@@ -58,17 +63,37 @@ function App() {
               </div>
             </div>
             <div className="atlas-joycon" role="group" aria-label="Move GPS location">
-              <button className="atlas-joycon-button north" type="button" onClick={() => atlas.nudgeGpsLocation('north')} aria-label="Move GPS north">
+              <button
+                className="atlas-joycon-button north"
+                type="button"
+                onClick={() => atlas.nudgeGpsLocation('north')}
+                aria-label="Move GPS north"
+              >
                 ^
               </button>
-              <button className="atlas-joycon-button west" type="button" onClick={() => atlas.nudgeGpsLocation('west')} aria-label="Move GPS west">
+              <button
+                className="atlas-joycon-button west"
+                type="button"
+                onClick={() => atlas.nudgeGpsLocation('west')}
+                aria-label="Move GPS west"
+              >
                 &lt;
               </button>
               <span className="atlas-joycon-center" aria-hidden="true" />
-              <button className="atlas-joycon-button east" type="button" onClick={() => atlas.nudgeGpsLocation('east')} aria-label="Move GPS east">
+              <button
+                className="atlas-joycon-button east"
+                type="button"
+                onClick={() => atlas.nudgeGpsLocation('east')}
+                aria-label="Move GPS east"
+              >
                 &gt;
               </button>
-              <button className="atlas-joycon-button south" type="button" onClick={() => atlas.nudgeGpsLocation('south')} aria-label="Move GPS south">
+              <button
+                className="atlas-joycon-button south"
+                type="button"
+                onClick={() => atlas.nudgeGpsLocation('south')}
+                aria-label="Move GPS south"
+              >
                 v
               </button>
             </div>

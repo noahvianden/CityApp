@@ -1,0 +1,8 @@
+android
+dist
+node_modules
+*.log
+*.md
+cityapp-*-log.txt
+package-lock.json
+public/city-style.json

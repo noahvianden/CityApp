@@ -20,7 +20,7 @@ type PatchableMap = typeof import('maplibre-gl').Map.prototype & { __cityLiveWor
 type UpdatableGeoJsonSource = { setData: (data: LivePlaceFeatureCollection) => void }
 type LivePlaceFeature = {
   type: 'Feature'
-  geometry: { type: 'Point', coordinates: Coordinate }
+  geometry: { type: 'Point'; coordinates: Coordinate }
   properties: {
     id: string
     name: string
@@ -28,13 +28,13 @@ type LivePlaceFeature = {
     detail: string
   }
 }
-type LivePlaceFeatureCollection = { type: 'FeatureCollection', features: LivePlaceFeature[] }
+type LivePlaceFeatureCollection = { type: 'FeatureCollection'; features: LivePlaceFeature[] }
 type OverpassElement = {
   id?: number
   type?: string
   lat?: number
   lon?: number
-  center?: { lat?: number, lon?: number }
+  center?: { lat?: number; lon?: number }
   tags?: Record<string, string | undefined>
 }
 type LivePlacesState = {
@@ -94,11 +94,11 @@ function getStateCenter(state: LivePlacesState) {
   return center
 }
 
-function getFetchKey(state: LivePlacesState, center: { lng: number, lat: number }) {
+function getFetchKey(state: LivePlacesState, center: { lng: number; lat: number }) {
   return `${state.cityKey ?? 'city'}:${Math.round(center.lat * 1000) / 1000}:${Math.round(center.lng * 1000) / 1000}:z${Math.floor(state.map.getZoom() * 10) / 10}`
 }
 
-function buildOverpassQuery(center: { lng: number, lat: number }) {
+function buildOverpassQuery(center: { lng: number; lat: number }) {
   const around = `${livePlaceRadiusMeters},${center.lat},${center.lng}`
   return `
 [out:json][timeout:12];
@@ -168,7 +168,7 @@ function placeFeatureFromElement(element: OverpassElement, boundary: Boundary | 
   }
 }
 
-function sortAndDedupe(features: LivePlaceFeature[], center: { lng: number, lat: number }) {
+function sortAndDedupe(features: LivePlaceFeature[], center: { lng: number; lat: number }) {
   const seen = new Set<string>()
   return features
     .sort(
@@ -224,17 +224,28 @@ function ensureLivePlaceLayers(map: MapInstance) {
       minzoom: snapPlaceZoom,
       paint: {
         'circle-color': [
-          'match', ['get', 'category'],
-          'cafe', '#b66b3e',
-          'restaurant', '#c65f46',
-          'bar', '#7a5fb2',
-          'gallery', '#6f72bd',
-          'culture', '#4f7fa5',
-          'viewpoint', '#2f8f7f',
-          'market', '#c08a2f',
-          'park', '#4f8f55',
-          'shop', '#7d745d',
-          'landmark', '#d9654f',
+          'match',
+          ['get', 'category'],
+          'cafe',
+          '#b66b3e',
+          'restaurant',
+          '#c65f46',
+          'bar',
+          '#7a5fb2',
+          'gallery',
+          '#6f72bd',
+          'culture',
+          '#4f7fa5',
+          'viewpoint',
+          '#2f8f7f',
+          'market',
+          '#c08a2f',
+          'park',
+          '#4f8f55',
+          'shop',
+          '#7d745d',
+          'landmark',
+          '#d9654f',
           '#2f8f7f',
         ],
         'circle-opacity': ['interpolate', ['linear'], ['zoom'], snapPlaceZoom, 0.72, 16, 0.94],
@@ -279,7 +290,7 @@ function setLivePlaces(map: MapInstance, collection: LivePlaceFeatureCollection)
   getLivePlacesSource(map)?.setData(collection)
 }
 
-async function fetchLivePlaces(state: LivePlacesState, fetchKey: string, center: { lng: number, lat: number }) {
+async function fetchLivePlaces(state: LivePlacesState, fetchKey: string, center: { lng: number; lat: number }) {
   const response = await fetch(overpassEndpoint, {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8' },
@@ -290,9 +301,11 @@ async function fetchLivePlaces(state: LivePlacesState, fetchKey: string, center:
   if (!response.ok) throw new Error(`Live place request failed: ${response.status}`)
 
   const payload = await response.json()
-  const elements = Array.isArray(payload?.elements) ? payload.elements as OverpassElement[] : []
+  const elements = Array.isArray(payload?.elements) ? (payload.elements as OverpassElement[]) : []
   const features = sortAndDedupe(
-    elements.map((element) => placeFeatureFromElement(element, state.boundary)).filter((feature): feature is LivePlaceFeature => Boolean(feature)),
+    elements
+      .map((element) => placeFeatureFromElement(element, state.boundary))
+      .filter((feature): feature is LivePlaceFeature => Boolean(feature)),
     center,
   )
   const collection: LivePlaceFeatureCollection = { type: 'FeatureCollection', features }
@@ -321,7 +334,9 @@ function scheduleLivePlaceRefresh(state: LivePlacesState, force = false) {
     state.lastFetchKey = fetchKey
     state.lastFetchAt = Date.now()
     setLivePlaces(state.map, cached)
-    console.info(`[atlas-live-places] cache ${JSON.stringify({ places: cached.features.length, cityKey: state.cityKey, radiusM: livePlaceRadiusMeters, snapZoom: snapPlaceZoom, center })}`)
+    console.info(
+      `[atlas-live-places] cache ${JSON.stringify({ places: cached.features.length, cityKey: state.cityKey, radiusM: livePlaceRadiusMeters, snapZoom: snapPlaceZoom, center })}`,
+    )
     return
   }
 
@@ -332,7 +347,9 @@ function scheduleLivePlaceRefresh(state: LivePlacesState, force = false) {
     .then((collection) => {
       if (state.lastFetchKey !== fetchKey) return
       setLivePlaces(state.map, collection)
-      console.info(`[atlas-live-places] loaded ${JSON.stringify({ places: collection.features.length, cityKey: state.cityKey, radiusM: livePlaceRadiusMeters, snapZoom: snapPlaceZoom, center })}`)
+      console.info(
+        `[atlas-live-places] loaded ${JSON.stringify({ places: collection.features.length, cityKey: state.cityKey, radiusM: livePlaceRadiusMeters, snapZoom: snapPlaceZoom, center })}`,
+      )
     })
     .catch((error: unknown) => {
       console.warn('[atlas-live-places] request failed', error)
@@ -344,8 +361,10 @@ function scheduleLivePlaceRefresh(state: LivePlacesState, force = false) {
 }
 
 function extractPoint(data: unknown) {
-  const geometry = (data as { geometry?: unknown })?.geometry as { type?: unknown, coordinates?: unknown } | undefined
-  return geometry?.type === 'Point' && isCoordinate(geometry.coordinates) ? { lng: geometry.coordinates[0], lat: geometry.coordinates[1] } : null
+  const geometry = (data as { geometry?: unknown })?.geometry as { type?: unknown; coordinates?: unknown } | undefined
+  return geometry?.type === 'Point' && isCoordinate(geometry.coordinates)
+    ? { lng: geometry.coordinates[0], lat: geometry.coordinates[1] }
+    : null
 }
 
 function wrapPointSource(map: MapInstance) {

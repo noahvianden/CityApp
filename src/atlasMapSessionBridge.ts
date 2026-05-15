@@ -11,7 +11,9 @@ type StoredCamera = {
   pitch: number
   savedAt: number
 }
-type BoundsLike = [[number, number], [number, number]] | { getWest?: () => number, getEast?: () => number, getSouth?: () => number, getNorth?: () => number }
+type BoundsLike =
+  | [[number, number], [number, number]]
+  | { getWest?: () => number; getEast?: () => number; getSouth?: () => number; getNorth?: () => number }
 type CameraEventMap = {
   on: (event: string, listener: () => void) => unknown
   once: (event: string, listener: () => void) => unknown
@@ -72,8 +74,11 @@ function getActiveCityOption() {
   const activeCityName = normalizeCityName(getStoredActiveCityName())
   if (!activeCityName) return null
 
-  return Array.from(document.querySelectorAll<HTMLButtonElement>('.atlas-city-option'))
-    .find((option) => normalizeCityName(getCityOptionTitle(option)) === activeCityName) ?? null
+  return (
+    Array.from(document.querySelectorAll<HTMLButtonElement>('.atlas-city-option')).find(
+      (option) => normalizeCityName(getCityOptionTitle(option)) === activeCityName,
+    ) ?? null
+  )
 }
 
 function keepCurrentCityVisible() {
@@ -120,15 +125,15 @@ function getStoredCamera(): StoredCamera | null {
   try {
     const parsed = JSON.parse(window.sessionStorage.getItem(atlasCameraStorageKey) ?? 'null')
     if (
-      parsed
-      && Array.isArray(parsed.center)
-      && parsed.center.length >= 2
-      && finite(parsed.center[0])
-      && finite(parsed.center[1])
-      && finite(parsed.zoom)
-      && finite(parsed.bearing)
-      && finite(parsed.pitch)
-      && finite(parsed.savedAt)
+      parsed &&
+      Array.isArray(parsed.center) &&
+      parsed.center.length >= 2 &&
+      finite(parsed.center[0]) &&
+      finite(parsed.center[1]) &&
+      finite(parsed.zoom) &&
+      finite(parsed.bearing) &&
+      finite(parsed.pitch) &&
+      finite(parsed.savedAt)
     ) {
       return parsed as StoredCamera
     }
@@ -319,12 +324,16 @@ function installDomGuards() {
   if (!citySelectionListenersInstalled) {
     citySelectionListenersInstalled = true
     document.addEventListener('click', clickBackToCurrentAtlas, true)
-    document.addEventListener('click', (event) => {
-      notePossiblePlaceSelection(event)
-      rememberVisibleActiveCityName()
-      schedulePlaceCardVisibility()
-      scheduleKeepCurrentCityVisible()
-    }, true)
+    document.addEventListener(
+      'click',
+      (event) => {
+        notePossiblePlaceSelection(event)
+        rememberVisibleActiveCityName()
+        schedulePlaceCardVisibility()
+        scheduleKeepCurrentCityVisible()
+      },
+      true,
+    )
   }
 
   schedulePlaceCardVisibility()

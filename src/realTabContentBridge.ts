@@ -15,12 +15,7 @@ let observer: MutationObserver | null = null
 let pendingFrame = 0
 
 function escapeHtml(value: string) {
-  return value
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;')
+  return value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;')
 }
 
 function pluralize(count: number, singular: string, plural = `${singular}s`) {
@@ -181,11 +176,7 @@ function privacyContent() {
       ${metric('route sharing', 'Off', 'no public trail feed')}
     </div>
     <div class="city-real-tab-card-list">
-      ${card(
-        'What stays local',
-        'Saved, visited, and memory actions are stored on this device for the app experience.',
-        'blue',
-      )}
+      ${card('What stays local', 'Saved, visited, and memory actions are stored on this device for the app experience.', 'blue')}
       ${card(
         'What location is used for',
         'Live location powers the current dot, boundary switching, fog reveal, and nearby place lookups while you are using Atlas.',

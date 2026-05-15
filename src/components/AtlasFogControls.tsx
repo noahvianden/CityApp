@@ -1,10 +1,5 @@
 import { useEffect, useState, type CSSProperties } from 'react'
-import {
-  getAtlasFogSnapshot,
-  getAtlasFogVisible,
-  setAtlasFogVisible,
-  subscribeAtlasFog,
-} from '../atlasGeoFogBridge'
+import { getAtlasFogSnapshot, getAtlasFogVisible, setAtlasFogVisible, subscribeAtlasFog } from '../atlasGeoFogBridge'
 
 export function AtlasFogProgress() {
   const [snapshot, setSnapshot] = useState(() => getAtlasFogSnapshot())
@@ -12,11 +7,7 @@ export function AtlasFogProgress() {
   useEffect(() => subscribeAtlasFog(setSnapshot), [])
 
   return (
-    <div
-      className="atlas-fog-progress"
-      style={{ '--atlas-fog-progress': `${snapshot.progress}%` } as CSSProperties}
-      aria-live="polite"
-    >
+    <div className="atlas-fog-progress" style={{ '--atlas-fog-progress': `${snapshot.progress}%` } as CSSProperties} aria-live="polite">
       <span>
         <b>{snapshot.progress}%</b>
         <small>revealed</small>

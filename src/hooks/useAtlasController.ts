@@ -47,7 +47,7 @@ export function useAtlasController() {
   const mapKey = activeAtlas
     ? `${activeAtlas.cityId}:${activeAtlas.bounds.south}:${activeAtlas.bounds.west}:${activeAtlas.bounds.north}:${activeAtlas.bounds.east}`
     : 'empty-atlas'
-  const displayedTitle = activeTab === 'atlas' ? activeAtlas?.cityName ?? 'City' : activeTabItem.label
+  const displayedTitle = activeTab === 'atlas' ? (activeAtlas?.cityName ?? 'City') : activeTabItem.label
   const shouldShowAtlasMap = activeTab === 'atlas' && !isCitySelectionOpen
   const mapFrameClassName = isMapFullscreen ? 'atlas-map-frame fullscreen' : 'atlas-map-frame'
 

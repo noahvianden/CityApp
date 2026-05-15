@@ -99,7 +99,14 @@ function getCityOptionId(button: HTMLButtonElement) {
   const title = getCityOptionTitle(button)
   const detail = button.querySelector('small')?.textContent?.trim()
 
-  return [title, detail].filter(Boolean).join(' \u00b7 ') || button.textContent?.replace(/[\u2605\u2606]/g, '').replace(/\s+/g, ' ').trim() || ''
+  return (
+    [title, detail].filter(Boolean).join(' \u00b7 ') ||
+    button.textContent
+      ?.replace(/[\u2605\u2606]/g, '')
+      .replace(/\s+/g, ' ')
+      .trim() ||
+    ''
+  )
 }
 
 function getFavoriteKeysForOption(option: HTMLButtonElement) {
@@ -218,7 +225,14 @@ function getNominatimCityId(place: NominatimSearchEntry, fallbackQuery: string) 
 }
 
 function getNominatimCityName(place: NominatimSearchEntry, fallbackQuery: string) {
-  return place.name ?? place.address?.city ?? place.address?.town ?? place.address?.village ?? place.address?.municipality ?? fallbackQuery.replace(/\s+/g, ' ').trim()
+  return (
+    place.name ??
+    place.address?.city ??
+    place.address?.town ??
+    place.address?.village ??
+    place.address?.municipality ??
+    fallbackQuery.replace(/\s+/g, ' ').trim()
+  )
 }
 
 async function resolveSearchCityEntry(query: string): Promise<PendingSearchCity | null> {
@@ -265,7 +279,9 @@ function addPendingSearchCity(city: PendingSearchCity) {
   if (existingIds.has(city.id) || existingIds.has(getCityNameFavoriteKey(city.name))) return 'exists' as const
 
   const favoriteSet = new Set(getFavoriteCityIds())
-  const keptPendingCities = getPendingSearchCities().filter((entry) => isPendingCityFavorite(entry, favoriteSet) || isPendingCityActive(entry))
+  const keptPendingCities = getPendingSearchCities().filter(
+    (entry) => isPendingCityFavorite(entry, favoriteSet) || isPendingCityActive(entry),
+  )
   const nextCities = [city, ...keptPendingCities.filter((entry) => entry.id !== city.id)]
   setPendingSearchCities(nextCities)
 
@@ -588,7 +604,9 @@ function enhanceCitySelection() {
     button.textContent = '\u2039'
     button.addEventListener('click', () => {
       cleanupCityListAfterClose()
-      const firstVisibleCity = Array.from(cityList.querySelectorAll<HTMLButtonElement>('.atlas-city-option')).find((option) => !option.hidden)
+      const firstVisibleCity = Array.from(cityList.querySelectorAll<HTMLButtonElement>('.atlas-city-option')).find(
+        (option) => !option.hidden,
+      )
       firstVisibleCity?.click()
     })
     heading.prepend(button)

@@ -10,19 +10,12 @@
     max(
       360px,
       calc(
-        var(--city-atlas-shell-height)
-        - var(--city-atlas-map-top)
-        - var(--city-atlas-control-bottom)
-        - var(--city-atlas-control-height)
-        - var(--city-atlas-map-to-controls-gap)
+        var(--city-atlas-shell-height) - var(--city-atlas-map-top) - var(--city-atlas-control-bottom) - var(--city-atlas-control-height) -
+          var(--city-atlas-map-to-controls-gap)
       )
     )
   );
-  --city-place-card-bottom: calc(
-    var(--city-atlas-shell-height)
-    - var(--city-atlas-map-top)
-    - var(--city-atlas-map-height)
-  );
+  --city-place-card-bottom: calc(var(--city-atlas-shell-height) - var(--city-atlas-map-top) - var(--city-atlas-map-height));
 }
 
 .atlas-core {
@@ -61,11 +54,8 @@
       max(
         330px,
         calc(
-          var(--city-atlas-shell-height)
-          - var(--city-atlas-map-top)
-          - var(--city-atlas-control-bottom)
-          - var(--city-atlas-control-height)
-          - var(--city-atlas-map-to-controls-gap)
+          var(--city-atlas-shell-height) - var(--city-atlas-map-top) - var(--city-atlas-control-bottom) - var(--city-atlas-control-height) -
+            var(--city-atlas-map-to-controls-gap)
         )
       )
     );
@@ -90,7 +80,10 @@
 
 .city-place-discovery-card {
   width: 100% !important;
-  max-height: min(calc(var(--city-atlas-map-height) - 24px), calc(100svh - 116px - env(safe-area-inset-top) - env(safe-area-inset-bottom))) !important;
+  max-height: min(
+    calc(var(--city-atlas-map-height) - 24px),
+    calc(100svh - 116px - env(safe-area-inset-top) - env(safe-area-inset-bottom))
+  ) !important;
   overflow-y: auto !important;
   overscroll-behavior: contain !important;
   pointer-events: auto !important;
@@ -102,7 +95,7 @@
 
 .city-place-discovery-card h2 {
   font-size: clamp(22px, 7vw, 28px) !important;
-  line-height: .98 !important;
+  line-height: 0.98 !important;
 }
 
 .city-place-card-description {
@@ -163,7 +156,7 @@ body:has(.atlas-map-frame.fullscreen) .city-place-discovery-card-shell {
     padding: 13px !important;
   }
 
-  .city-place-card-tags span:nth-child(n+5) {
+  .city-place-card-tags span:nth-child(n + 5) {
     display: none !important;
   }
 }

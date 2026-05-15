@@ -12,7 +12,7 @@ type MapInstance = import('maplibre-gl').Map
 
 type PatchableMap = typeof import('maplibre-gl').Map.prototype & { __cityPlaceDiscoveryOverlayPatched?: boolean }
 type PlaceFeature = {
-  geometry?: { type?: unknown, coordinates?: unknown }
+  geometry?: { type?: unknown; coordinates?: unknown }
   properties?: Record<string, unknown>
 }
 type PlaceLayerEvent = {
@@ -69,12 +69,7 @@ function titleCase(value: string) {
 }
 
 function escapeHtml(value: string) {
-  return value
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;')
+  return value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;')
 }
 
 function getCategoryTags(category: LivePlaceCategory, detail: string) {
@@ -158,16 +153,14 @@ async function lookupAddressLabel(place: PlaceCardModel) {
 
   if (!response.ok) return 'Street address unavailable'
 
-  const payload = await response.json() as ReverseAddressPayload
+  const payload = (await response.json()) as ReverseAddressPayload
   const label = formatAddress(payload)
   addressCache.set(cacheKey, label)
   return label
 }
 
 function featureToPlaceModel(map: MapInstance, feature: PlaceFeature): PlaceCardModel | null {
-  const coordinate = feature.geometry?.type === 'Point' && isCoordinate(feature.geometry.coordinates)
-    ? feature.geometry.coordinates
-    : null
+  const coordinate = feature.geometry?.type === 'Point' && isCoordinate(feature.geometry.coordinates) ? feature.geometry.coordinates : null
   if (!coordinate) return null
 
   const properties = feature.properties
@@ -175,7 +168,9 @@ function featureToPlaceModel(map: MapInstance, feature: PlaceFeature): PlaceCard
   const category = categoryProperty(stringProperty(properties, 'category'))
   const detail = titleCase(stringProperty(properties, 'detail', getCategoryLabel(category)))
   const center = map.getCenter()
-  const distanceLabel = formatDistance(metersBetweenLngLat({ lng: center.lng, lat: center.lat }, { lng: coordinate[0], lat: coordinate[1] }))
+  const distanceLabel = formatDistance(
+    metersBetweenLngLat({ lng: center.lng, lat: center.lat }, { lng: coordinate[0], lat: coordinate[1] }),
+  )
   const addressLabel = addressCache.get(getCoordinateAddressCacheKey(coordinate)) ?? 'Looking up street address...'
   const basePlace = {
     id: stringProperty(properties, 'id', `${coordinate[1]}:${coordinate[0]}:${name}`),

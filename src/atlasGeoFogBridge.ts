@@ -14,8 +14,8 @@ import {
 } from './geoSpatial'
 
 type MapInstance = import('maplibre-gl').Map
-type RevealPoint = { lng: number, lat: number, radiusM: number, revealedAt: number }
-type AtlasFogSnapshot = { cityKey: string | null, progress: number, revealedPoints: number }
+type RevealPoint = { lng: number; lat: number; radiusM: number; revealedAt: number }
+type AtlasFogSnapshot = { cityKey: string | null; progress: number; revealedPoints: number }
 type UpdatableGeoJsonSource = { setData: (data: unknown) => void }
 type PatchableMap = typeof import('maplibre-gl').Map.prototype & { __atlasFogPatched?: boolean }
 type FogState = {
@@ -60,7 +60,19 @@ let isFogVisible = true
 function getState(map: MapInstance) {
   const existing = states.get(map)
   if (existing) return existing
-  const state: FogState = { map, boundary: null, bounds: null, cityKey: null, points: [], lastCenter: null, progress: 0, canvas: null, buffer: null, frame: null, listener: null }
+  const state: FogState = {
+    map,
+    boundary: null,
+    bounds: null,
+    cityKey: null,
+    points: [],
+    lastCenter: null,
+    progress: 0,
+    canvas: null,
+    buffer: null,
+    frame: null,
+    listener: null,
+  }
   states.set(map, state)
   activeStates.add(state)
   return state
@@ -147,7 +159,15 @@ function ensureCanvas(state: FogState) {
   const canvas = document.createElement('canvas')
   canvas.className = 'atlas-organic-fog-canvas'
   canvas.setAttribute('aria-hidden', 'true')
-  Object.assign(canvas.style, { position: 'absolute', inset: '0', width: '100%', height: '100%', pointerEvents: 'none', zIndex: '5', display: isFogVisible ? 'block' : 'none' })
+  Object.assign(canvas.style, {
+    position: 'absolute',
+    inset: '0',
+    width: '100%',
+    height: '100%',
+    pointerEvents: 'none',
+    zIndex: '5',
+    display: isFogVisible ? 'block' : 'none',
+  })
   container.appendChild(canvas)
   state.canvas = canvas
   state.buffer = document.createElement('canvas')
@@ -189,7 +209,7 @@ function drawBoundaryPath(context: CanvasRenderingContext2D, state: FogState) {
 }
 
 function metersPerPixel(map: MapInstance, lat: number) {
-  return 156543.03392 * Math.cos(lat * Math.PI / 180) / Math.pow(2, map.getZoom())
+  return (156543.03392 * Math.cos((lat * Math.PI) / 180)) / Math.pow(2, map.getZoom())
 }
 
 function drawReveal(context: CanvasRenderingContext2D, state: FogState, point: RevealPoint, index: number) {
@@ -290,7 +310,7 @@ function styleMapLayers(map: MapInstance) {
   }
 
   for (const layer of map.getStyle().layers ?? []) {
-    const candidate = layer as { id?: string, type?: string, source?: string, 'source-layer'?: string }
+    const candidate = layer as { id?: string; type?: string; source?: string; 'source-layer'?: string }
     const isBoundaryLine = candidate.type === 'line' && candidate['source-layer'] === 'boundaries'
     const isAdminLine = candidate.type === 'line' && Boolean(candidate.id?.startsWith('admin_'))
 
@@ -317,11 +337,13 @@ function updateState(state: FogState) {
 }
 
 function extractPoint(data: unknown) {
-  const geometry = (data as { geometry?: unknown })?.geometry as { type?: unknown, coordinates?: unknown } | undefined
-  return geometry?.type === 'Point' && isCoordinate(geometry.coordinates) ? { lng: geometry.coordinates[0], lat: geometry.coordinates[1] } : null
+  const geometry = (data as { geometry?: unknown })?.geometry as { type?: unknown; coordinates?: unknown } | undefined
+  return geometry?.type === 'Point' && isCoordinate(geometry.coordinates)
+    ? { lng: geometry.coordinates[0], lat: geometry.coordinates[1] }
+    : null
 }
 
-function createRevealPoints(from: { lng: number, lat: number } | null, to: { lng: number, lat: number }) {
+function createRevealPoints(from: { lng: number; lat: number } | null, to: { lng: number; lat: number }) {
   const distance = from ? metersBetweenLngLat(from, to) : 0
   const steps = Math.max(1, Math.ceil(distance / revealSpacingMeters))
   const now = Date.now()
@@ -338,19 +360,24 @@ function createRevealPoints(from: { lng: number, lat: number } | null, to: { lng
   return points
 }
 
-function revealPoint(map: MapInstance, point: { lng: number, lat: number }) {
+function revealPoint(map: MapInstance, point: { lng: number; lat: number }) {
   const state = getState(map)
   refreshCity(state)
   if (!insideBoundary(point, state.boundary)) return
   const previous = state.lastCenter
   const alreadyNear = previous ? metersBetweenLngLat(previous, point) < revealSpacingMeters : false
   if (!alreadyNear) {
-    state.points = [...state.points, ...createRevealPoints(previous, point).filter((candidate) => insideBoundary(candidate, state.boundary))].slice(-maxRevealPoints)
+    state.points = [
+      ...state.points,
+      ...createRevealPoints(previous, point).filter((candidate) => insideBoundary(candidate, state.boundary)),
+    ].slice(-maxRevealPoints)
     state.lastCenter = point
     savePoints(state)
   }
   updateState(state)
-  console.info(`[atlas-fog] reveal ${JSON.stringify({ progress: state.progress, revealedPoints: state.points.length, cityKey: state.cityKey })}`)
+  console.info(
+    `[atlas-fog] reveal ${JSON.stringify({ progress: state.progress, revealedPoints: state.points.length, cityKey: state.cityKey })}`,
+  )
 }
 
 function wrapPointSource(map: MapInstance) {
@@ -371,7 +398,9 @@ function handleSource(map: MapInstance, id: string, source: unknown) {
     state.boundary = boundaryFromSource(source)
     state.bounds = boundsFromBoundary(state.boundary) ?? state.bounds
     updateState(state)
-    console.info(`[atlas-fog] boundary ready ${JSON.stringify({ cityKey: state.cityKey, polygons: polygons(state.boundary).length, revealedPoints: state.points.length })}`)
+    console.info(
+      `[atlas-fog] boundary ready ${JSON.stringify({ cityKey: state.cityKey, polygons: polygons(state.boundary).length, revealedPoints: state.points.length })}`,
+    )
     return
   }
   if (id === pointSourceId) {
@@ -387,7 +416,7 @@ function patchMapPrototype(prototype: PatchableMap) {
 
   const originalAddLayer = prototype.addLayer
   prototype.addLayer = function patchedAddLayer(this: MapInstance, ...args: Parameters<MapInstance['addLayer']>) {
-    const layer = args[0] as { id?: unknown, paint?: Record<string, unknown> }
+    const layer = args[0] as { id?: unknown; paint?: Record<string, unknown> }
     if (layer.id === accuracyLayerId || layer.id === oldRevealLayerId || layer.id === oldFogLayerId) return this
     if (layer.id === outsideMaskLayerId) {
       layer.paint = { ...(layer.paint ?? {}), 'fill-color': outsideAreaColor, 'fill-opacity': 1 }

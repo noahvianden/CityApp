@@ -21,25 +21,27 @@ function distanceMeters(a: GpsLocationSample, b: GpsLocationSample) {
   const longitudeDelta = degreesToRadians(b.longitude - a.longitude)
   const startLatitude = degreesToRadians(a.latitude)
   const endLatitude = degreesToRadians(b.latitude)
-  const haversine =
-    Math.sin(latitudeDelta / 2) ** 2 +
-    Math.cos(startLatitude) * Math.cos(endLatitude) * Math.sin(longitudeDelta / 2) ** 2
+  const haversine = Math.sin(latitudeDelta / 2) ** 2 + Math.cos(startLatitude) * Math.cos(endLatitude) * Math.sin(longitudeDelta / 2) ** 2
 
   return 2 * earthRadiusMeters * Math.atan2(Math.sqrt(haversine), Math.sqrt(1 - haversine))
 }
 
 function getGpsButton() {
-  return Array.from(document.querySelectorAll<HTMLButtonElement>('.atlas-control')).find((button) => {
-    const label = button.textContent?.trim().toLowerCase() ?? ''
-    return label.includes('gps')
-  }) ?? null
+  return (
+    Array.from(document.querySelectorAll<HTMLButtonElement>('.atlas-control')).find((button) => {
+      const label = button.textContent?.trim().toLowerCase() ?? ''
+      return label.includes('gps')
+    }) ?? null
+  )
 }
 
 function getSimulatedButton() {
-  return Array.from(document.querySelectorAll<HTMLButtonElement>('.atlas-control')).find((button) => {
-    const label = button.textContent?.trim().toLowerCase() ?? ''
-    return label.includes('simulated')
-  }) ?? null
+  return (
+    Array.from(document.querySelectorAll<HTMLButtonElement>('.atlas-control')).find((button) => {
+      const label = button.textContent?.trim().toLowerCase() ?? ''
+      return label.includes('simulated')
+    }) ?? null
+  )
 }
 
 function markLiveWalkActive(active: boolean) {

@@ -23,7 +23,12 @@ function isHighwayOrAutobahnLabel(layer: StyleLayerCandidate) {
   const id = layer.id?.toLowerCase() ?? ''
   const filterText = JSON.stringify(layer.filter ?? '').toLowerCase()
   const isRoadText = id.includes('label') || id.includes('shield') || id.includes('exit') || id.includes('route')
-  const isHighway = filterText.includes('motorway') || filterText.includes('trunk') || id.includes('motorway') || id.includes('highway') || id.includes('shield')
+  const isHighway =
+    filterText.includes('motorway') ||
+    filterText.includes('trunk') ||
+    id.includes('motorway') ||
+    id.includes('highway') ||
+    id.includes('shield')
 
   return isRoadText && isHighway
 }
