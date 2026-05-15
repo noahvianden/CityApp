@@ -34,26 +34,26 @@ type RealTabState = {
 }
 
 const realTabStates: Record<string, RealTabState> = {
-  memories: {
-    eyebrow: 'Saved city memory',
-    title: 'Recent discoveries',
-    body: 'Places you reveal on walks are saved here with their city, district, and discovery context.',
-    cardLabel: 'Memory log',
+  walks: {
+    eyebrow: 'Walk record',
+    title: 'Exploration walks',
+    body: 'Completed walks will collect revealed area, districts touched, and places discovered.',
+    cardLabel: 'Walk cards',
+    cardBody: 'Automatic walk detection will turn real exploration into quiet cards here.',
+  },
+  journal: {
+    eyebrow: 'Saved discoveries',
+    title: 'Journal',
+    body: 'Saved places, visited places, photos, and memories will collect here after they are discovered on Atlas.',
+    cardLabel: 'Saved places',
     cardBody: 'Open Atlas, reveal a real place, then return here to review saved discoveries.',
   },
-  stats: {
+  progress: {
     eyebrow: 'City progress',
-    title: 'Discovery stats',
+    title: 'Progress',
     body: 'Track revealed map coverage, visited districts, and real-place discoveries for the active city.',
     cardLabel: 'Progress',
     cardBody: 'Fog reveal and discovery counts update as you move through the city.',
-  },
-  privacy: {
-    eyebrow: 'Location privacy',
-    title: 'Private by design',
-    body: 'Location is used for your live atlas and fog reveal flow. Cityprint keeps discovery language focused on private walking, not rankings.',
-    cardLabel: 'Controls',
-    cardBody: 'Use GPS only when you choose Start; switch fog visibility any time from the atlas controls.',
   },
 }
 

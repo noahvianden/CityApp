@@ -3,7 +3,7 @@ import type { BoundedAtlasPoint } from './nominatimCityBoundaries'
 import { getNativeCurrentLocation, isNativeRuntime, requestNativeLocationPermission } from './nativeRuntime'
 
 export type LocationMode = 'gps' | 'simulated'
-export type AppTab = 'atlas' | 'memories' | 'stats' | 'privacy'
+export type AppTab = 'atlas' | 'walks' | 'journal' | 'progress'
 export type GpsNudgeDirection = 'north' | 'east' | 'south' | 'west'
 export type MapViewActionType = 'default' | 'snap'
 
@@ -89,25 +89,25 @@ export const placeOverviewZoom = 15.25
 export const appTabs: AppTabItem[] = [
   { key: 'atlas', icon: 'A', label: 'Atlas', dummyTitle: 'Atlas', dummyBody: 'Explore the current city boundary.' },
   {
-    key: 'memories',
-    icon: 'M',
-    label: 'Memories',
-    dummyTitle: 'Memories coming soon',
-    dummyBody: 'This placeholder will show visited places, saved moments, and city notes.',
+    key: 'walks',
+    icon: 'W',
+    label: 'Walks',
+    dummyTitle: 'Walks coming soon',
+    dummyBody: 'This placeholder will show completed exploration walks and discovered places.',
   },
   {
-    key: 'stats',
-    icon: 'S',
-    label: 'Stats',
-    dummyTitle: 'Stats coming soon',
-    dummyBody: 'This placeholder will show discovery progress, visited areas, and atlas activity.',
+    key: 'journal',
+    icon: 'J',
+    label: 'Journal',
+    dummyTitle: 'Journal coming soon',
+    dummyBody: 'This placeholder will show saved places, visited places, photos, and memories.',
   },
   {
-    key: 'privacy',
+    key: 'progress',
     icon: 'P',
-    label: 'Privacy',
-    dummyTitle: 'Privacy coming soon',
-    dummyBody: 'This placeholder will show location controls, data choices, and privacy settings.',
+    label: 'Progress',
+    dummyTitle: 'Progress coming soon',
+    dummyBody: 'This placeholder will show city completion, district reveal, and collections.',
   },
 ]
 

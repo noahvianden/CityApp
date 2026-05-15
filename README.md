@@ -18,7 +18,7 @@ The detailed next development plan is documented in [next-development-steps.md](
 - Device-local persistence for revealed fog points and place actions
 - Real place discovery from map data through Overpass
 - Place cards with save, visited, and memory markers
-- Basic Memories, Stats, and Privacy-era placeholder tabs
+- Basic Atlas, Walks, Journal, and Progress tabs
 - Native Android geolocation, share, clipboard, external browser, and file export integrations
 
 ## Run Locally

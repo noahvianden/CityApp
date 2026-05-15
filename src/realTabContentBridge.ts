@@ -1,4 +1,4 @@
-import { getAtlasFogSnapshot, getAtlasFogVisible, setAtlasFogVisible } from './atlasGeoFogBridge'
+import { getAtlasFogSnapshot } from './atlasGeoFogBridge'
 import {
   getCategoryLabel,
   getPlaceDiscoveryState as getPlaceState,
@@ -7,7 +7,7 @@ import {
   type SavedPlace,
 } from './placeDiscoveryState'
 
-type RealTabKey = 'memories' | 'stats' | 'privacy'
+type RealTabKey = 'walks' | 'journal' | 'progress'
 
 let isInstalled = false
 let intervalId: number | null = null
@@ -30,9 +30,9 @@ function getActiveTabKey(): RealTabKey | null {
   const activeTab = document.querySelector<HTMLElement>('.atlas-tab.active')
   const text = activeTab?.textContent?.replace(/\s+/g, ' ').trim().toLocaleLowerCase() ?? ''
 
-  if (text.includes('memories')) return 'memories'
-  if (text.includes('stats')) return 'stats'
-  if (text.includes('privacy')) return 'privacy'
+  if (text.includes('walks')) return 'walks'
+  if (text.includes('journal')) return 'journal'
+  if (text.includes('progress')) return 'progress'
 
   return null
 }
@@ -62,10 +62,6 @@ function card(title: string, body: string, accent?: string) {
   `
 }
 
-function actionButton(label: string, action: string, isActive = false) {
-  return `<button class="city-real-tab-action ${isActive ? 'active' : ''}" type="button" data-real-tab-action="${escapeHtml(action)}">${escapeHtml(label)}</button>`
-}
-
 function savedPlaceItem(place: SavedPlace) {
   return `
     <article class="city-saved-place-item" data-saved-place-id="${escapeHtml(place.id)}">
@@ -73,12 +69,12 @@ function savedPlaceItem(place: SavedPlace) {
         <span class="city-saved-place-pin ${escapeHtml(place.category)}" aria-hidden="true"></span>
         <span class="city-saved-place-copy">
           <strong>${escapeHtml(place.name)}</strong>
-          <small>${escapeHtml(getCategoryLabel(place.category))} · ${escapeHtml(place.detail)}</small>
+          <small>${escapeHtml(getCategoryLabel(place.category))} - ${escapeHtml(place.detail)}</small>
           <em>${escapeHtml(place.addressLabel || 'Address unavailable')}</em>
         </span>
         <span class="city-saved-place-date">${escapeHtml(formatSavedAt(place.savedAt))}</span>
       </button>
-      <button class="city-saved-place-remove" type="button" data-real-tab-action="remove-saved-place" data-place-id="${escapeHtml(place.id)}" aria-label="Remove ${escapeHtml(place.name)} from saved places">×</button>
+      <button class="city-saved-place-remove" type="button" data-real-tab-action="remove-saved-place" data-place-id="${escapeHtml(place.id)}" aria-label="Remove ${escapeHtml(place.name)} from saved places">x</button>
     </article>
   `
 }
@@ -100,7 +96,33 @@ function savedPlacesList(savedPlaces: SavedPlace[]) {
   `
 }
 
-function memoryContent(placeState: StoredPlaceState) {
+function walksContent(placeState: StoredPlaceState) {
+  const snapshot = getAtlasFogSnapshot()
+  const discoveredPlaces = new Set([...placeState.savedIds, ...placeState.visitedIds, ...placeState.memoryIds]).size
+
+  return `
+    <div class="city-real-tab-header">
+      <span>Walks</span>
+      <div role="heading" aria-level="2">Exploration walks</div>
+      <small>${escapeHtml(getActiveCityName())} - completed walks will appear here after automatic detection lands</small>
+    </div>
+    <div class="city-real-tab-metrics">
+      ${metric('walk cards', '0', 'automatic detection next')}
+      ${metric('reveal points', String(snapshot.revealedPoints), 'available for future walks')}
+      ${metric('places found', String(discoveredPlaces), 'saved, visited, or marked')}
+    </div>
+    <div class="city-real-tab-card-list">
+      ${card(
+        'Cards not tracking yet',
+        'The Walks tab is now in the main navigation. The next walk slice can add the detector and completed-session records.',
+        'warm',
+      )}
+      ${card('Exploration focus', 'Walk cards should emphasize revealed area, districts touched, and discovered places rather than fitness stats.')}
+    </div>
+  `
+}
+
+function journalContent(placeState: StoredPlaceState) {
   const savedPlaces = placeState.savedPlaces
   const savedCount = Math.max(placeState.savedIds.length, savedPlaces.length)
   const visitedCount = placeState.visitedIds.length
@@ -108,9 +130,9 @@ function memoryContent(placeState: StoredPlaceState) {
 
   return `
     <div class="city-real-tab-header">
-      <span>Memories</span>
+      <span>Journal</span>
       <div role="heading" aria-level="2">Saved places</div>
-      <small>${escapeHtml(getActiveCityName())} · places you saved from live discovery cards</small>
+      <small>${escapeHtml(getActiveCityName())} - places you saved from live discovery cards</small>
     </div>
     <div class="city-real-tab-metrics">
       ${metric('saved places', String(savedCount), savedPlaces.length ? 'listed below' : 'from place cards')}
@@ -122,7 +144,7 @@ function memoryContent(placeState: StoredPlaceState) {
       ${card(
         savedPlaces.length ? 'Saved place list' : 'Start your list',
         savedPlaces.length
-          ? `${pluralize(savedPlaces.length, 'place')} saved. Tap a row to open it in Google Maps, or remove it with ×.`
+          ? `${pluralize(savedPlaces.length, 'place')} saved. Tap a row to open it in Google Maps, or remove it with x.`
           : 'Your saved place list is built from live places on the Atlas map.',
         'warm',
       )}
@@ -130,20 +152,20 @@ function memoryContent(placeState: StoredPlaceState) {
   `
 }
 
-function statsContent(placeState: StoredPlaceState) {
+function progressContent(placeState: StoredPlaceState) {
   const snapshot = getAtlasFogSnapshot()
   const totalPlaceActions = placeState.savedIds.length + placeState.visitedIds.length + placeState.memoryIds.length
 
   return `
     <div class="city-real-tab-header">
-      <span>Stats</span>
+      <span>Progress</span>
       <div role="heading" aria-level="2">Discovery progress</div>
-      <small>${escapeHtml(getActiveCityName())} · updates as fog reveal and place discovery change</small>
+      <small>${escapeHtml(getActiveCityName())} - updates as fog reveal and place discovery change</small>
     </div>
     <div class="city-real-tab-metrics">
       ${metric('revealed', `${snapshot.progress}%`, snapshot.revealedPoints ? 'city fog progress' : 'start walking to reveal')}
       ${metric('reveal points', String(snapshot.revealedPoints), 'live atlas samples')}
-      ${metric('place actions', String(totalPlaceActions), 'saved, visited, memories')}
+      ${metric('place actions', String(totalPlaceActions), 'saved, visited, journal')}
     </div>
     <div class="city-real-tab-card-list">
       ${card(
@@ -161,37 +183,10 @@ function statsContent(placeState: StoredPlaceState) {
   `
 }
 
-function privacyContent() {
-  const isFogVisible = getAtlasFogVisible()
-
-  return `
-    <div class="city-real-tab-header">
-      <span>Privacy</span>
-      <div role="heading" aria-level="2">Location controls</div>
-      <small>Cityprint uses location for the atlas view, fog reveal, and nearby place discovery.</small>
-    </div>
-    <div class="city-real-tab-metrics">
-      ${metric('location mode', 'Manual start', 'GPS starts only from Atlas')}
-      ${metric('fog layer', isFogVisible ? 'Visible' : 'Hidden', 'you control this')}
-      ${metric('route sharing', 'Off', 'no public trail feed')}
-    </div>
-    <div class="city-real-tab-card-list">
-      ${card('What stays local', 'Saved, visited, and memory actions are stored on this device for the app experience.', 'blue')}
-      ${card(
-        'What location is used for',
-        'Live location powers the current dot, boundary switching, fog reveal, and nearby place lookups while you are using Atlas.',
-      )}
-    </div>
-    <div class="city-real-tab-actions">
-      ${actionButton(isFogVisible ? 'Hide fog' : 'Show fog', 'toggle-fog', isFogVisible)}
-      ${actionButton('Back to Atlas', 'atlas')}
-    </div>
-  `
-}
-
 function getPanelSignature(tabKey: RealTabKey) {
   const state = getPlaceState()
   const snapshot = getAtlasFogSnapshot()
+
   return JSON.stringify({
     tabKey,
     city: getActiveCityName(),
@@ -201,16 +196,15 @@ function getPanelSignature(tabKey: RealTabKey) {
     memories: state.memoryIds.length,
     progress: snapshot.progress,
     revealedPoints: snapshot.revealedPoints,
-    fog: getAtlasFogVisible(),
   })
 }
 
 function getPanelContent(tabKey: RealTabKey) {
   const placeState = getPlaceState()
 
-  if (tabKey === 'memories') return memoryContent(placeState)
-  if (tabKey === 'stats') return statsContent(placeState)
-  return privacyContent()
+  if (tabKey === 'walks') return walksContent(placeState)
+  if (tabKey === 'journal') return journalContent(placeState)
+  return progressContent(placeState)
 }
 
 function renderRealTabPanel() {
@@ -260,12 +254,6 @@ function handleRealTabAction(event: MouseEvent) {
   const action = actionElement.dataset.realTabAction
   const placeId = actionElement.dataset.placeId
 
-  if (action === 'toggle-fog') {
-    setAtlasFogVisible(!getAtlasFogVisible())
-    scheduleRenderRealTabPanel()
-    return
-  }
-
   if (action === 'atlas') {
     document.querySelector<HTMLButtonElement>('.atlas-tab')?.click()
     return
@@ -305,7 +293,7 @@ function ensureStyles() {
       color: rgba(42,40,36,.62);
       font-size: 10px;
       font-weight: 950;
-      letter-spacing: .08em;
+      letter-spacing: 0;
       padding: 8px 12px;
       text-transform: uppercase;
     }
@@ -313,7 +301,7 @@ function ensureStyles() {
       color: #2a2824;
       font-size: 27px;
       font-weight: 950;
-      letter-spacing: -.055em;
+      letter-spacing: 0;
       line-height: 1;
     }
     .city-real-tab-header small {
@@ -334,7 +322,7 @@ function ensureStyles() {
       align-content: start;
       gap: 3px;
       border: 1px solid rgba(66,47,25,.08);
-      border-radius: 18px;
+      border-radius: 8px;
       background: rgba(255,253,247,.62);
       padding: 13px 12px;
     }
@@ -342,7 +330,7 @@ function ensureStyles() {
       color: #2a2824;
       font-size: 24px;
       font-weight: 950;
-      letter-spacing: -.055em;
+      letter-spacing: 0;
       line-height: .9;
     }
     .city-real-tab-metric span {
@@ -368,7 +356,7 @@ function ensureStyles() {
     .city-saved-place-item {
       position: relative;
       border: 1px solid rgba(66,47,25,.08);
-      border-radius: 20px;
+      border-radius: 8px;
       background: rgba(255,253,247,.7);
       box-shadow: 0 10px 20px rgba(54,42,28,.05);
       overflow: hidden;
@@ -390,7 +378,7 @@ function ensureStyles() {
     .city-saved-place-pin {
       width: 42px;
       height: 42px;
-      border-radius: 15px;
+      border-radius: 8px;
       background: #d9654f;
       box-shadow: inset 0 0 0 8px rgba(255,250,241,.52);
     }
@@ -456,7 +444,7 @@ function ensureStyles() {
       display: grid;
       gap: 7px;
       border: 1px dashed #e3d5c0;
-      border-radius: 20px;
+      border-radius: 8px;
       background: rgba(255,249,239,.52);
       color: #7e766a;
       padding: 18px;
@@ -479,45 +467,23 @@ function ensureStyles() {
       display: grid;
       gap: 7px;
       border: 1px solid rgba(66,47,25,.08);
-      border-radius: 18px;
+      border-radius: 8px;
       background: rgba(255,253,247,.58);
       padding: 16px;
     }
     .city-real-tab-card.accent-warm { background: rgba(255,247,236,.78); }
     .city-real-tab-card.accent-green { background: rgba(235,246,232,.72); }
-    .city-real-tab-card.accent-blue { background: rgba(235,244,248,.74); }
     .city-real-tab-card strong {
       color: #2a2824;
       font-size: 14px;
       font-weight: 950;
-      letter-spacing: -.015em;
+      letter-spacing: 0;
     }
     .city-real-tab-card span {
       color: rgba(42,40,36,.67);
       font-size: 13px;
       font-weight: 780;
       line-height: 1.35;
-    }
-    .city-real-tab-actions {
-      display: grid;
-      gap: 10px;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-    }
-    .city-real-tab-action {
-      min-height: 42px;
-      border: 1px solid rgba(58,38,16,.12);
-      border-radius: 15px;
-      background: rgba(255,253,247,.78);
-      color: #2a2824;
-      font: inherit;
-      font-size: 12px;
-      font-weight: 900;
-    }
-    .city-real-tab-action.active,
-    .city-real-tab-action:first-child {
-      border-color: transparent;
-      background: #28241f;
-      color: #fffaf1;
     }
     @media (max-width: 430px) {
       .city-real-tab-panel { padding: 22px !important; }
@@ -528,8 +494,7 @@ function ensureStyles() {
       .city-saved-place-date { display: none; }
     }
     @media (max-width: 350px) {
-      .city-real-tab-metrics,
-      .city-real-tab-actions { grid-template-columns: 1fr; }
+      .city-real-tab-metrics { grid-template-columns: 1fr; }
       .city-real-tab-metric { min-height: 0; }
     }
   `
