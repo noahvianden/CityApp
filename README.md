@@ -2,9 +2,11 @@
 
 Cityprint is a prototype for gamified local exploration. Users walk through a real city, clear fog around their GPS path, discover selected real-world places, and build progress across cities and districts.
 
-## Product Goal
+## Product Direction
 
 The current product goal is documented in [product-goal.md](product-goal.md). The near-term focus is the Atlas: live fog reveal, background walk tracking, real place discovery, and city/district completion. Dedicated privacy features are not a current product goal.
+
+The detailed next development plan is documented in [next-development-steps.md](next-development-steps.md). Each item explains what changes, how it works for the user, and how it should work inside the app.
 
 ## Current Prototype
 

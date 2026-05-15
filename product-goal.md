@@ -278,3 +278,5 @@ Highest priority:
 5. The Atlas looks like a soft game-board city map.
 6. Progress for city and district reveal is visible.
 7. The old Privacy tab is replaced by a more relevant tab.
+
+The detailed implementation-oriented plan is maintained in [next-development-steps.md](next-development-steps.md).
