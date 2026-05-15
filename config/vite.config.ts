@@ -9,6 +9,7 @@ export default defineConfig({
     chunkSizeWarningLimit: 1200,
   },
   server: {
+    host: '0.0.0.0',
     proxy: {
       '/nominatim': {
         target: 'https://nominatim.openstreetmap.org',
@@ -16,5 +17,8 @@ export default defineConfig({
         rewrite: (path) => path.replace(/^\/nominatim/, ''),
       },
     },
+  },
+  preview: {
+    host: '0.0.0.0',
   },
 })
