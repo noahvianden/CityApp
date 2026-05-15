@@ -1,6 +1,6 @@
 import { getAtlasFogSnapshot, getAtlasFogVisible, setAtlasFogVisible } from './atlasGeoFogBridge'
+import { isCoordinate, isFiniteNumber, type Coordinate } from './geoSpatial'
 
-type Coordinate = [number, number]
 type LivePlaceCategory = 'cafe' | 'restaurant' | 'bar' | 'gallery' | 'culture' | 'viewpoint' | 'market' | 'park' | 'shop' | 'landmark'
 type SavedPlace = {
   id: string
@@ -25,14 +25,6 @@ let isInstalled = false
 let intervalId: number | null = null
 let observer: MutationObserver | null = null
 let pendingFrame = 0
-
-function finite(value: unknown): value is number {
-  return typeof value === 'number' && Number.isFinite(value)
-}
-
-function isCoordinate(value: unknown): value is Coordinate {
-  return Array.isArray(value) && value.length >= 2 && finite(value[0]) && finite(value[1])
-}
 
 function escapeHtml(value: string) {
   return value
@@ -77,7 +69,7 @@ function isSavedPlace(value: unknown): value is SavedPlace {
     && isCoordinate(entry.coordinate)
     && typeof entry.addressLabel === 'string'
     && typeof entry.googleMapsUrl === 'string'
-    && finite(entry.savedAt)
+    && isFiniteNumber(entry.savedAt)
   )
 }
 

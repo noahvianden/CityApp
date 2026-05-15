@@ -1,6 +1,7 @@
+import { isCoordinate, isFiniteNumber, metersBetweenLngLat, type Coordinate } from './geoSpatial'
+
 type MapInstance = import('maplibre-gl').Map
 
-type Coordinate = [number, number]
 type LivePlaceCategory = 'cafe' | 'restaurant' | 'bar' | 'gallery' | 'culture' | 'viewpoint' | 'market' | 'park' | 'shop' | 'landmark'
 type PatchableMap = typeof import('maplibre-gl').Map.prototype & { __cityPlaceDiscoveryOverlayPatched?: boolean }
 type PlaceFeature = {
@@ -62,14 +63,6 @@ const installedHandlers = new WeakMap<MapInstance, InstalledHandlers>()
 let overlayRoot: HTMLElement | null = null
 let currentPlace: PlaceCardModel | null = null
 let installPromise: Promise<void> | null = null
-
-function finite(value: unknown): value is number {
-  return typeof value === 'number' && Number.isFinite(value)
-}
-
-function isCoordinate(value: unknown): value is Coordinate {
-  return Array.isArray(value) && value.length >= 2 && finite(value[0]) && finite(value[1])
-}
 
 function stringProperty(properties: Record<string, unknown> | undefined, key: string, fallback = '') {
   const value = properties?.[key]
@@ -150,18 +143,6 @@ function getCategoryTags(category: LivePlaceCategory, detail: string) {
   return tags.slice(0, 6)
 }
 
-function metersBetween(a: { lng: number, lat: number }, b: { lng: number, lat: number }) {
-  const earth = 6_371_000
-  const dLat = (b.lat - a.lat) * Math.PI / 180
-  const dLng = (b.lng - a.lng) * Math.PI / 180
-  const latA = a.lat * Math.PI / 180
-  const latB = b.lat * Math.PI / 180
-  const sLat = Math.sin(dLat / 2)
-  const sLng = Math.sin(dLng / 2)
-  const h = sLat * sLat + Math.cos(latA) * Math.cos(latB) * sLng * sLng
-  return 2 * earth * Math.atan2(Math.sqrt(h), Math.sqrt(Math.max(1 - h, 0)))
-}
-
 function formatDistance(meters: number) {
   if (!Number.isFinite(meters)) return 'nearby'
   if (meters < 90) return 'right here'
@@ -240,7 +221,7 @@ function featureToPlaceModel(map: MapInstance, feature: PlaceFeature): PlaceCard
   const category = categoryProperty(properties)
   const detail = titleCase(stringProperty(properties, 'detail', getCategoryLabel(category)))
   const center = map.getCenter()
-  const distanceLabel = formatDistance(metersBetween({ lng: center.lng, lat: center.lat }, { lng: coordinate[0], lat: coordinate[1] }))
+  const distanceLabel = formatDistance(metersBetweenLngLat({ lng: center.lng, lat: center.lat }, { lng: coordinate[0], lat: coordinate[1] }))
   const addressLabel = addressCache.get(getCoordinateAddressCacheKey(coordinate)) ?? 'Looking up street address...'
   const basePlace = {
     id: stringProperty(properties, 'id', `${coordinate[1]}:${coordinate[0]}:${name}`),
@@ -267,7 +248,7 @@ function isSavedPlace(value: unknown): value is SavedPlace {
     && isCoordinate(entry.coordinate)
     && typeof entry.addressLabel === 'string'
     && typeof entry.googleMapsUrl === 'string'
-    && finite(entry.savedAt)
+    && isFiniteNumber(entry.savedAt)
   )
 }
 

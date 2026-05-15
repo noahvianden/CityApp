@@ -1,9 +1,20 @@
+import {
+  boundaryFromSource,
+  boundsFromBoundary,
+  cityKeyFromBounds,
+  insideBoundary,
+  isCoordinate,
+  isFiniteNumber,
+  metersBetweenLngLat,
+  normalizeMapBounds,
+  type Boundary,
+  type Bounds,
+  type Coordinate,
+  type LngLatPoint,
+} from './geoSpatial'
+
 type MapInstance = import('maplibre-gl').Map
 
-type Coordinate = [number, number]
-type Ring = Coordinate[]
-type Boundary = { type: 'Polygon', coordinates: Ring[] } | { type: 'MultiPolygon', coordinates: Ring[][] }
-type Bounds = { west: number, south: number, east: number, north: number }
 type LivePlaceCategory = 'cafe' | 'restaurant' | 'bar' | 'gallery' | 'culture' | 'viewpoint' | 'market' | 'park' | 'shop' | 'landmark'
 type PatchableMap = typeof import('maplibre-gl').Map.prototype & { __cityLiveWorldPlacesPatched?: boolean }
 type UpdatableGeoJsonSource = { setData: (data: LivePlaceFeatureCollection) => void }
@@ -31,7 +42,7 @@ type LivePlacesState = {
   boundary: Boundary | null
   bounds: Bounds | null
   cityKey: string | null
-  activePoint: { lng: number, lat: number } | null
+  activePoint: LngLatPoint | null
   lastFetchKey: string | null
   lastFetchAt: number
   isFetching: boolean
@@ -54,93 +65,6 @@ let installPromise: Promise<void> | null = null
 
 const emptyPlaces: LivePlaceFeatureCollection = { type: 'FeatureCollection', features: [] }
 
-function finite(value: unknown): value is number {
-  return typeof value === 'number' && Number.isFinite(value)
-}
-
-function isCoordinate(value: unknown): value is Coordinate {
-  return Array.isArray(value) && value.length >= 2 && finite(value[0]) && finite(value[1])
-}
-
-function normalizeRing(value: unknown): Ring | null {
-  if (!Array.isArray(value)) return null
-  const ring = value.filter(isCoordinate).map(([lng, lat]) => [lng, lat] as Coordinate)
-  if (ring.length < 4) return null
-  const [firstLng, firstLat] = ring[0]
-  const [lastLng, lastLat] = ring[ring.length - 1]
-  if (firstLng !== lastLng || firstLat !== lastLat) ring.push([firstLng, firstLat])
-  return ring
-}
-
-function normalizePolygon(value: unknown): Ring[] | null {
-  if (!Array.isArray(value)) return null
-  const rings = value.map(normalizeRing).filter((ring): ring is Ring => Boolean(ring))
-  return rings.length ? rings : null
-}
-
-function normalizeBoundary(value: unknown): Boundary | null {
-  if (!value || typeof value !== 'object') return null
-  const geometry = value as { type?: unknown, coordinates?: unknown }
-  if (geometry.type === 'Polygon') {
-    const polygon = normalizePolygon(geometry.coordinates)
-    return polygon ? { type: 'Polygon', coordinates: polygon } : null
-  }
-  if (geometry.type === 'MultiPolygon' && Array.isArray(geometry.coordinates)) {
-    const polygons = geometry.coordinates.map(normalizePolygon).filter((polygon): polygon is Ring[] => Boolean(polygon))
-    return polygons.length ? { type: 'MultiPolygon', coordinates: polygons } : null
-  }
-  return null
-}
-
-function boundaryFromSource(source: unknown) {
-  const data = (source as { data?: unknown })?.data ?? source
-  return normalizeBoundary((data as { geometry?: unknown })?.geometry ?? data)
-}
-
-function polygons(boundary: Boundary | null) {
-  if (!boundary) return []
-  return boundary.type === 'Polygon' ? [boundary.coordinates] : boundary.coordinates
-}
-
-function boundsFromBoundary(boundary: Boundary | null): Bounds | null {
-  let west = Infinity
-  let south = Infinity
-  let east = -Infinity
-  let north = -Infinity
-  for (const polygon of polygons(boundary)) {
-    for (const ring of polygon) {
-      for (const [lng, lat] of ring) {
-        west = Math.min(west, lng)
-        south = Math.min(south, lat)
-        east = Math.max(east, lng)
-        north = Math.max(north, lat)
-      }
-    }
-  }
-  return [west, south, east, north].every(Number.isFinite) && west < east && south < north ? { west, south, east, north } : null
-}
-
-function normalizeBounds(value: unknown): Bounds | null {
-  if (Array.isArray(value) && value.length >= 2 && isCoordinate(value[0]) && isCoordinate(value[1])) {
-    const [west, south] = value[0]
-    const [east, north] = value[1]
-    return west < east && south < north ? { west, south, east, north } : null
-  }
-
-  const bounds = value as { getWest?: () => number, getSouth?: () => number, getEast?: () => number, getNorth?: () => number }
-  if (!bounds?.getWest || !bounds.getSouth || !bounds.getEast || !bounds.getNorth) return null
-  const west = bounds.getWest()
-  const south = bounds.getSouth()
-  const east = bounds.getEast()
-  const north = bounds.getNorth()
-
-  return [west, south, east, north].every(Number.isFinite) && west < east && south < north ? { west, south, east, north } : null
-}
-
-function cityKey(bounds: Bounds) {
-  return [bounds.west, bounds.south, bounds.east, bounds.north].map((value) => value.toFixed(5)).join(':')
-}
-
 function getState(map: MapInstance) {
   const existing = states.get(map)
   if (existing) return existing
@@ -157,39 +81,6 @@ function getState(map: MapInstance) {
   }
   states.set(map, state)
   return state
-}
-
-function insideRing(point: { lng: number, lat: number }, ring: Ring) {
-  let inside = false
-  for (let index = 0, previous = ring.length - 1; index < ring.length; previous = index, index += 1) {
-    const [lng, lat] = ring[index]
-    const [prevLng, prevLat] = ring[previous]
-    const crosses = lat > point.lat !== prevLat > point.lat
-    const crossingLng = ((prevLng - lng) * (point.lat - lat)) / (prevLat - lat + 0.0000000001) + lng
-    if (crosses && point.lng < crossingLng) inside = !inside
-  }
-  return inside
-}
-
-function insidePolygon(point: { lng: number, lat: number }, polygon: Ring[]) {
-  const [outer, ...holes] = polygon
-  return Boolean(outer) && insideRing(point, outer) && !holes.some((hole) => insideRing(point, hole))
-}
-
-function insideBoundary(point: { lng: number, lat: number }, boundary: Boundary | null) {
-  return boundary ? polygons(boundary).some((polygon) => insidePolygon(point, polygon)) : true
-}
-
-function metersBetween(a: { lng: number, lat: number }, b: { lng: number, lat: number }) {
-  const earth = 6_371_000
-  const dLat = (b.lat - a.lat) * Math.PI / 180
-  const dLng = (b.lng - a.lng) * Math.PI / 180
-  const latA = a.lat * Math.PI / 180
-  const latB = b.lat * Math.PI / 180
-  const sLat = Math.sin(dLat / 2)
-  const sLng = Math.sin(dLng / 2)
-  const h = sLat * sLat + Math.cos(latA) * Math.cos(latB) * sLng * sLng
-  return 2 * earth * Math.atan2(Math.sqrt(h), Math.sqrt(Math.max(1 - h, 0)))
 }
 
 function getStateCenter(state: LivePlacesState) {
@@ -263,7 +154,7 @@ function placeFeatureFromElement(element: OverpassElement, boundary: Boundary | 
   const name = element.tags?.name?.trim()
   const category = element.tags ? getCategory(element.tags) : null
 
-  if (!finite(lat) || !finite(lng) || !name || !category || !insideBoundary({ lng, lat }, boundary)) return null
+  if (!isFiniteNumber(lat) || !isFiniteNumber(lng) || !name || !category || !insideBoundary({ lng, lat }, boundary)) return null
 
   return {
     type: 'Feature',
@@ -280,7 +171,11 @@ function placeFeatureFromElement(element: OverpassElement, boundary: Boundary | 
 function sortAndDedupe(features: LivePlaceFeature[], center: { lng: number, lat: number }) {
   const seen = new Set<string>()
   return features
-    .sort((a, b) => metersBetween(center, { lng: a.geometry.coordinates[0], lat: a.geometry.coordinates[1] }) - metersBetween(center, { lng: b.geometry.coordinates[0], lat: b.geometry.coordinates[1] }))
+    .sort(
+      (a, b) =>
+        metersBetweenLngLat(center, { lng: a.geometry.coordinates[0], lat: a.geometry.coordinates[1] }) -
+        metersBetweenLngLat(center, { lng: b.geometry.coordinates[0], lat: b.geometry.coordinates[1] }),
+    )
     .filter((feature) => {
       const key = `${feature.properties.name.toLocaleLowerCase()}:${feature.properties.category}`
       if (seen.has(key)) return false
@@ -294,7 +189,7 @@ function getCachedPlaces(fetchKey: string) {
   try {
     const parsed = JSON.parse(window.localStorage.getItem(`${storagePrefix}${fetchKey}`) ?? 'null')
     if (!parsed || typeof parsed !== 'object') return null
-    if (!finite(parsed.savedAt) || Date.now() - parsed.savedAt > cacheTtlMs) return null
+    if (!isFiniteNumber(parsed.savedAt) || Date.now() - parsed.savedAt > cacheTtlMs) return null
     if (!parsed.collection || parsed.collection.type !== 'FeatureCollection' || !Array.isArray(parsed.collection.features)) return null
     return parsed.collection as LivePlaceFeatureCollection
   } catch {
@@ -407,7 +302,7 @@ async function fetchLivePlaces(state: LivePlacesState, fetchKey: string, center:
 
 function scheduleLivePlaceRefresh(state: LivePlacesState, force = false) {
   if (!state.bounds) return
-  const nextCityKey = cityKey(state.bounds)
+  const nextCityKey = cityKeyFromBounds(state.bounds)
   if (state.cityKey !== nextCityKey) {
     state.cityKey = nextCityKey
     state.lastFetchKey = null
@@ -524,7 +419,7 @@ function patchMapPrototype(prototype: PatchableMap) {
   prototype.setMaxBounds = function patchedSetMaxBounds(this: MapInstance, ...args: Parameters<MapInstance['setMaxBounds']>) {
     const result = originalSetMaxBounds.apply(this, args)
     const state = getState(this)
-    state.bounds = normalizeBounds(args[0]) ?? state.bounds
+    state.bounds = normalizeMapBounds(args[0]) ?? state.bounds
     attachMoveListener(state)
     ensureLivePlaceLayers(this)
     scheduleLivePlaceRefresh(state, true)
