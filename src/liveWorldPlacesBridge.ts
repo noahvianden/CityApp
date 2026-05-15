@@ -12,10 +12,10 @@ import {
   type Coordinate,
   type LngLatPoint,
 } from './geoSpatial'
+import type { LivePlaceCategory } from './placeDiscoveryState'
 
 type MapInstance = import('maplibre-gl').Map
 
-type LivePlaceCategory = 'cafe' | 'restaurant' | 'bar' | 'gallery' | 'culture' | 'viewpoint' | 'market' | 'park' | 'shop' | 'landmark'
 type PatchableMap = typeof import('maplibre-gl').Map.prototype & { __cityLiveWorldPlacesPatched?: boolean }
 type UpdatableGeoJsonSource = { setData: (data: LivePlaceFeatureCollection) => void }
 type LivePlaceFeature = {

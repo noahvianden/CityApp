@@ -1,26 +1,14 @@
 import { getAtlasFogSnapshot, getAtlasFogVisible, setAtlasFogVisible } from './atlasGeoFogBridge'
-import { isCoordinate, isFiniteNumber, type Coordinate } from './geoSpatial'
+import {
+  getCategoryLabel,
+  getPlaceDiscoveryState as getPlaceState,
+  setPlaceDiscoveryState as setPlaceState,
+  type PlaceDiscoveryState as StoredPlaceState,
+  type SavedPlace,
+} from './placeDiscoveryState'
 
-type LivePlaceCategory = 'cafe' | 'restaurant' | 'bar' | 'gallery' | 'culture' | 'viewpoint' | 'market' | 'park' | 'shop' | 'landmark'
-type SavedPlace = {
-  id: string
-  name: string
-  category: LivePlaceCategory
-  detail: string
-  coordinate: Coordinate
-  addressLabel: string
-  googleMapsUrl: string
-  savedAt: number
-}
 type RealTabKey = 'memories' | 'stats' | 'privacy'
-type StoredPlaceState = {
-  savedIds: string[]
-  visitedIds: string[]
-  memoryIds: string[]
-  savedPlaces: SavedPlace[]
-}
 
-const placeStateStorageKey = 'cityapp:place-discovery-card-state:v1'
 let isInstalled = false
 let intervalId: number | null = null
 let observer: MutationObserver | null = null
@@ -39,83 +27,6 @@ function pluralize(count: number, singular: string, plural = `${singular}s`) {
   return `${count} ${count === 1 ? singular : plural}`
 }
 
-function readStringArray(value: unknown) {
-  return Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === 'string') : []
-}
-
-function categoryProperty(value: unknown): LivePlaceCategory {
-  if (
-    value === 'cafe'
-    || value === 'restaurant'
-    || value === 'bar'
-    || value === 'gallery'
-    || value === 'culture'
-    || value === 'viewpoint'
-    || value === 'market'
-    || value === 'park'
-    || value === 'shop'
-    || value === 'landmark'
-  ) return value
-  return 'landmark'
-}
-
-function isSavedPlace(value: unknown): value is SavedPlace {
-  if (!value || typeof value !== 'object') return false
-  const entry = value as Partial<SavedPlace>
-  return (
-    typeof entry.id === 'string'
-    && typeof entry.name === 'string'
-    && typeof entry.detail === 'string'
-    && isCoordinate(entry.coordinate)
-    && typeof entry.addressLabel === 'string'
-    && typeof entry.googleMapsUrl === 'string'
-    && isFiniteNumber(entry.savedAt)
-  )
-}
-
-function dedupeSavedPlaces(places: SavedPlace[]) {
-  const seen = new Set<string>()
-  return places
-    .map((place) => ({ ...place, category: categoryProperty(place.category) }))
-    .filter((place) => {
-      if (seen.has(place.id)) return false
-      seen.add(place.id)
-      return true
-    })
-    .sort((a, b) => b.savedAt - a.savedAt)
-}
-
-function getPlaceState(): StoredPlaceState {
-  try {
-    const parsed = JSON.parse(window.localStorage.getItem(placeStateStorageKey) ?? '{}')
-    return {
-      savedIds: readStringArray(parsed.savedIds),
-      visitedIds: readStringArray(parsed.visitedIds),
-      memoryIds: readStringArray(parsed.memoryIds),
-      savedPlaces: Array.isArray(parsed.savedPlaces) ? dedupeSavedPlaces(parsed.savedPlaces.filter(isSavedPlace)) : [],
-    }
-  } catch {
-    return { savedIds: [], visitedIds: [], memoryIds: [], savedPlaces: [] }
-  }
-}
-
-function setPlaceState(state: StoredPlaceState) {
-  const savedIds = Array.from(new Set(state.savedIds))
-  const savedIdSet = new Set(savedIds)
-  const savedPlaces = dedupeSavedPlaces(state.savedPlaces.filter((place) => savedIdSet.has(place.id)))
-
-  try {
-    window.localStorage.setItem(placeStateStorageKey, JSON.stringify({
-      savedIds,
-      visitedIds: Array.from(new Set(state.visitedIds)),
-      memoryIds: Array.from(new Set(state.memoryIds)),
-      savedPlaces,
-    }))
-  } catch {
-    // Optional UI storage.
-  }
-}
-
 function getActiveCityName() {
   return document.querySelector<HTMLElement>('.atlas-city-title-button span')?.textContent?.trim() || 'Current city'
 }
@@ -129,22 +40,6 @@ function getActiveTabKey(): RealTabKey | null {
   if (text.includes('privacy')) return 'privacy'
 
   return null
-}
-
-function getCategoryLabel(category: LivePlaceCategory) {
-  const labels: Record<LivePlaceCategory, string> = {
-    cafe: 'Cafe',
-    restaurant: 'Food',
-    bar: 'Bar',
-    gallery: 'Gallery',
-    culture: 'Culture',
-    viewpoint: 'View',
-    market: 'Market',
-    park: 'Park',
-    shop: 'Shop',
-    landmark: 'Landmark',
-  }
-  return labels[category]
 }
 
 function formatSavedAt(savedAt: number) {

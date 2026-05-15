@@ -1,8 +1,15 @@
-import { isCoordinate, isFiniteNumber, metersBetweenLngLat, type Coordinate } from './geoSpatial'
+import { isCoordinate, metersBetweenLngLat, type Coordinate } from './geoSpatial'
+import {
+  categoryProperty,
+  getCategoryLabel,
+  getPlaceDiscoveryState as getPlaceState,
+  setPlaceDiscoveryState as setPlaceState,
+  type LivePlaceCategory,
+  type SavedPlace,
+} from './placeDiscoveryState'
 
 type MapInstance = import('maplibre-gl').Map
 
-type LivePlaceCategory = 'cafe' | 'restaurant' | 'bar' | 'gallery' | 'culture' | 'viewpoint' | 'market' | 'park' | 'shop' | 'landmark'
 type PatchableMap = typeof import('maplibre-gl').Map.prototype & { __cityPlaceDiscoveryOverlayPatched?: boolean }
 type PlaceFeature = {
   geometry?: { type?: unknown, coordinates?: unknown }
@@ -22,22 +29,6 @@ type InstalledHandlers = {
   enter: () => void
   leave: () => void
 }
-type SavedPlace = {
-  id: string
-  name: string
-  category: LivePlaceCategory
-  detail: string
-  coordinate: Coordinate
-  addressLabel: string
-  googleMapsUrl: string
-  savedAt: number
-}
-type PlaceState = {
-  savedIds: string[]
-  visitedIds: string[]
-  memoryIds: string[]
-  savedPlaces: SavedPlace[]
-}
 type ReverseAddressPayload = {
   address?: Record<string, string | undefined>
   display_name?: string
@@ -56,7 +47,6 @@ type PlaceCardModel = {
 
 const livePlacesCircleLayerId = 'atlas-live-world-places-circle'
 const livePlacesLabelLayerId = 'atlas-live-world-places-label'
-const placeStateStorageKey = 'cityapp:place-discovery-card-state:v1'
 const addressCache = new Map<string, string>()
 const installedMaps = new WeakSet<MapInstance>()
 const installedHandlers = new WeakMap<MapInstance, InstalledHandlers>()
@@ -67,26 +57,6 @@ let installPromise: Promise<void> | null = null
 function stringProperty(properties: Record<string, unknown> | undefined, key: string, fallback = '') {
   const value = properties?.[key]
   return typeof value === 'string' && value.trim() ? value.trim() : fallback
-}
-
-function categoryProperty(properties: Record<string, unknown> | undefined): LivePlaceCategory {
-  const value = stringProperty(properties, 'category')
-  if (
-    value === 'cafe'
-    || value === 'restaurant'
-    || value === 'bar'
-    || value === 'gallery'
-    || value === 'culture'
-    || value === 'viewpoint'
-    || value === 'market'
-    || value === 'park'
-    || value === 'shop'
-    || value === 'landmark'
-  ) {
-    return value
-  }
-
-  return 'landmark'
 }
 
 function titleCase(value: string) {
@@ -105,22 +75,6 @@ function escapeHtml(value: string) {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;')
-}
-
-function getCategoryLabel(category: LivePlaceCategory) {
-  const labels: Record<LivePlaceCategory, string> = {
-    cafe: 'Cafe',
-    restaurant: 'Food',
-    bar: 'Bar',
-    gallery: 'Gallery',
-    culture: 'Culture',
-    viewpoint: 'View',
-    market: 'Market',
-    park: 'Park',
-    shop: 'Shop',
-    landmark: 'Landmark',
-  }
-  return labels[category]
 }
 
 function getCategoryTags(category: LivePlaceCategory, detail: string) {
@@ -218,7 +172,7 @@ function featureToPlaceModel(map: MapInstance, feature: PlaceFeature): PlaceCard
 
   const properties = feature.properties
   const name = stringProperty(properties, 'name', 'Discovered place')
-  const category = categoryProperty(properties)
+  const category = categoryProperty(stringProperty(properties, 'category'))
   const detail = titleCase(stringProperty(properties, 'detail', getCategoryLabel(category)))
   const center = map.getCenter()
   const distanceLabel = formatDistance(metersBetweenLngLat({ lng: center.lng, lat: center.lat }, { lng: coordinate[0], lat: coordinate[1] }))
@@ -235,63 +189,6 @@ function featureToPlaceModel(map: MapInstance, feature: PlaceFeature): PlaceCard
   }
 
   return { ...basePlace, googleMapsUrl: getGoogleMapsUrl(basePlace) }
-}
-
-function isSavedPlace(value: unknown): value is SavedPlace {
-  if (!value || typeof value !== 'object') return false
-  const entry = value as Partial<SavedPlace>
-  return (
-    typeof entry.id === 'string'
-    && typeof entry.name === 'string'
-    && typeof entry.category === 'string'
-    && typeof entry.detail === 'string'
-    && isCoordinate(entry.coordinate)
-    && typeof entry.addressLabel === 'string'
-    && typeof entry.googleMapsUrl === 'string'
-    && isFiniteNumber(entry.savedAt)
-  )
-}
-
-function dedupeSavedPlaces(places: SavedPlace[]) {
-  const seen = new Set<string>()
-  return places
-    .filter((place) => {
-      if (seen.has(place.id)) return false
-      seen.add(place.id)
-      return true
-    })
-    .sort((a, b) => b.savedAt - a.savedAt)
-}
-
-function getPlaceState(): PlaceState {
-  try {
-    const parsed = JSON.parse(window.localStorage.getItem(placeStateStorageKey) ?? '{}')
-    const savedIds = Array.isArray(parsed.savedIds) ? parsed.savedIds.filter((entry: unknown): entry is string => typeof entry === 'string') : []
-    const visitedIds = Array.isArray(parsed.visitedIds) ? parsed.visitedIds.filter((entry: unknown): entry is string => typeof entry === 'string') : []
-    const memoryIds = Array.isArray(parsed.memoryIds) ? parsed.memoryIds.filter((entry: unknown): entry is string => typeof entry === 'string') : []
-    const savedPlaces = Array.isArray(parsed.savedPlaces) ? dedupeSavedPlaces(parsed.savedPlaces.filter(isSavedPlace)) : []
-
-    return { savedIds, visitedIds, memoryIds, savedPlaces }
-  } catch {
-    return { savedIds: [], visitedIds: [], memoryIds: [], savedPlaces: [] }
-  }
-}
-
-function setPlaceState(state: PlaceState) {
-  const savedIds = Array.from(new Set(state.savedIds))
-  const savedIdSet = new Set(savedIds)
-  const savedPlaces = dedupeSavedPlaces(state.savedPlaces.filter((place) => savedIdSet.has(place.id)))
-
-  try {
-    window.localStorage.setItem(placeStateStorageKey, JSON.stringify({
-      savedIds,
-      visitedIds: Array.from(new Set(state.visitedIds)),
-      memoryIds: Array.from(new Set(state.memoryIds)),
-      savedPlaces,
-    }))
-  } catch {
-    // Place card state is optional convenience UI.
-  }
 }
 
 function toSavedPlace(place: PlaceCardModel, savedAt = Date.now()): SavedPlace {
