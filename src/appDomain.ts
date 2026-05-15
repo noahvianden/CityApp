@@ -1,6 +1,11 @@
 import type { GpsLocationSample } from './locationAdapter'
 import type { BoundedAtlasPoint } from './nominatimCityBoundaries'
-import { getNativeCurrentLocation, isNativeRuntime, requestNativeLocationPermission } from './nativeRuntime'
+import {
+  getLatestNativeWatchSample,
+  getNativeCurrentLocation,
+  isNativeRuntime,
+  requestNativeLocationPermission,
+} from './nativeRuntime'
 
 export type LocationMode = 'gps' | 'simulated'
 export type AppTab = 'atlas' | 'walks' | 'journal' | 'progress'
@@ -169,6 +174,12 @@ export async function getBrowserCurrentLocation() {
 
 export async function getCurrentLocation() {
   if (isNativeRuntime()) {
+    const cachedWatchSample = getLatestNativeWatchSample()
+
+    if (cachedWatchSample) {
+      return cachedWatchSample
+    }
+
     const permission = await requestNativeLocationPermission()
 
     if (permission === 'denied') {

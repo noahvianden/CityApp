@@ -1,4 +1,9 @@
-import { isNativeRuntime, requestNativeLocationPermission, watchNativeLocation } from './nativeRuntime'
+import {
+  clearLatestNativeWatchSample,
+  isNativeRuntime,
+  requestNativeLocationPermission,
+  watchNativeLocation,
+} from './nativeRuntime'
 import type { GpsLocationSample } from './locationAdapter'
 
 const liveWalkRefreshMinIntervalMs = 4500
@@ -123,6 +128,7 @@ async function startLiveWalkWatch() {
 function stopLiveWalkWatch() {
   stopNativeWatch?.()
   stopNativeWatch = null
+  clearLatestNativeWatchSample()
   lastForwardedSample = null
   lastRefreshAt = 0
   markLiveWalkActive(false)

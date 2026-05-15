@@ -69,6 +69,10 @@ export function getLatestNativeWatchSample(maxAgeMs = nativeWatchSampleMaxAgeMs)
   return latestNativeWatchSample
 }
 
+export function clearLatestNativeWatchSample() {
+  latestNativeWatchSample = null
+}
+
 export async function checkNativeLocationPermission(): Promise<AppLocationPermission> {
   if (!nativePluginAvailable('Geolocation')) {
     return 'not-requested'

@@ -32,11 +32,11 @@ The user should no longer see privacy as one of the main product pillars.
 
 **Status - 2026-05-16**
 
-Completed the first live-reveal quality pass. GPS point features now carry an accuracy-aware reveal radius, and the fog bridge uses that radius when it writes reveal points, so weaker samples clear less map instead of behaving like perfect fixes. Per-city fog persistence and interpolation are still in place.
+Completed the live watch sample handoff. Native GPS watch samples now flow straight into the Atlas GPS lookup path, and the cached sample is cleared when live watching stops so the app does not reuse a stale position after the user switches modes. Per-city fog persistence and interpolation are still in place.
 
-Remaining work in this area: feed native watch samples directly into the reveal pipeline instead of routing through a fresh GPS lookup, then tighten any remaining sample rejection rules.
+Remaining work in this area: tighten the remaining sample rejection rules for weak GPS fixes and keep tuning the reveal feel around noisy movement.
 
-Recommended next slice: keep step 3 and wire live GPS samples straight through the reveal path so the app uses the actual watch sample and not a re-fetched location update.
+Recommended next slice: stay on step 3 and harden the low-quality sample rejection rules before moving on to automatic walk detection.
 
 ## 2. Make Atlas The Primary Product Surface
 
